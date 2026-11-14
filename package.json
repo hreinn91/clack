@@ -1,0 +1,19 @@
+{
+  "name": "clack",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A home-built web UI for Claude Code, served over the local network",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace server & npm run dev --workspace web & wait",
+    "build": "npm run build --workspace web",
+    "start": "npm run start --workspace server",
+    "check": "npm run check --workspaces"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
