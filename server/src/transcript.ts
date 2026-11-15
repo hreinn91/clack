@@ -1,5 +1,8 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { SessionMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { Item } from '../../shared/protocol.ts';
+import type { EffortLevel, Item, Stamp } from '../../shared/protocol.ts';
 
 /** A content block as it appears in Anthropic API messages. */
 export type Block = { type: string; [key: string]: unknown };
@@ -41,11 +44,11 @@ export function cleanUserText(raw: string): string | null {
 }
 
 /** Turns the blocks of one assistant message into transcript items. */
-export function assistantItems(uuid: string, content: unknown, parent: string | null): Item[] {
+export function assistantItems(uuid: string, content: unknown, parent: string | null, stamp: Stamp = {}): Item[] {
   const items: Item[] = [];
   blocksOf(content).forEach((block, i) => {
     const id = `${uuid}:${i}`;
-    const sub = parent ? { parent } : {};
+    const sub = parent ? { ...stamp, parent } : stamp;
     if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
       items.push({ kind: 'text', id, text: block.text, ...sub });
     } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
@@ -57,15 +60,57 @@ export function assistantItems(uuid: string, content: unknown, parent: string | 
   return items;
 }
 
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+/** The model named on a reply, unless it is a placeholder such as "<synthetic>". */
+export function modelOf(message: unknown): string | undefined {
+  const model = (message as { model?: unknown } | null)?.model;
+  return typeof model === 'string' && model && !model.startsWith('<') ? model : undefined;
+}
+
+/**
+ * The effort each reply ran at, keyed by message uuid. Claude Code writes it
+ * on every reply in the session's transcript file but the SDK does not pass
+ * it on, so the file is read directly. Anything unexpected yields an empty
+ * map, which only means the replies are shown without an effort.
+ */
+export async function readEfforts(sessionId: string): Promise<Map<string, EffortLevel>> {
+  const efforts = new Map<string, EffortLevel>();
+  try {
+    const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects');
+    let raw: string | undefined;
+    for (const dir of await readdir(root)) {
+      raw = await readFile(join(root, dir, `${sessionId}.jsonl`), 'utf8').catch(() => undefined);
+      if (raw !== undefined) break;
+    }
+    for (const line of raw?.split('\n') ?? []) {
+      if (!line.includes('"effort"')) continue;
+      const entry = JSON.parse(line) as { type?: unknown; uuid?: unknown; effort?: unknown };
+      if (entry.type !== 'assistant' || typeof entry.uuid !== 'string') continue;
+      if (typeof entry.effort === 'string' && EFFORTS.has(entry.effort)) efforts.set(entry.uuid, entry.effort as EffortLevel);
+    }
+  } catch {
+    // Best effort: see above.
+  }
+  return efforts;
+}
+
 /** Rebuilds a transcript from the messages Claude Code saved on disk. */
-export function itemsFromHistory(messages: SessionMessage[]): Item[] {
+export function itemsFromHistory(messages: SessionMessage[], efforts: Map<string, EffortLevel> = new Map()): Item[] {
   const items: Item[] = [];
   const tools = new Map<string, Extract<Item, { kind: 'tool' }>>();
 
   for (const msg of messages) {
     const content = (msg.message as { content?: unknown } | null)?.content;
+    // Present in the saved messages, though the SDK's type does not list it.
+    const time = Date.parse(String((msg as { timestamp?: unknown }).timestamp ?? ''));
+    const when: Stamp = Number.isNaN(time) ? {} : { ts: time };
     if (msg.type === 'assistant') {
-      for (const item of assistantItems(msg.uuid, content, msg.parent_tool_use_id)) {
+      // A subagent's replies sit under the reply that started it, so only top-level ones are signed.
+      const stamp: Stamp = msg.parent_tool_use_id
+        ? when
+        : { ...when, model: modelOf(msg.message), effort: efforts.get(msg.uuid) };
+      for (const item of assistantItems(msg.uuid, content, msg.parent_tool_use_id, stamp)) {
         if (item.kind === 'tool') tools.set(item.id, item);
         items.push(item);
       }
@@ -80,7 +125,7 @@ export function itemsFromHistory(messages: SessionMessage[]): Item[] {
           if (text) typed.push(text);
         }
       }
-      if (typed.length) items.push({ kind: 'user', id: msg.uuid, text: typed.join('\n\n') });
+      if (typed.length) items.push({ kind: 'user', id: msg.uuid, text: typed.join('\n\n'), ...when });
     }
   }
   return items;

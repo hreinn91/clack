@@ -1,42 +1,87 @@
 :root {
   color-scheme: light dark;
 
-  --bg: #f6f5f2;
-  --surface: #ffffff;
-  --sunken: #eeece7;
-  --border: #dedbd3;
-  --text: #1c1b19;
-  --muted: #6a675f;
-  --accent: #0c7a63;
-  --accent-ink: #ffffff;
-  --accent-soft: #dcefe9;
-  --danger: #b2362e;
-  --danger-soft: #f7e3e0;
-  --add: #e3f2e6;
-  --del: #f8e4e1;
-  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 8%);
+  /* The frame around the conversation: top bar, rail and sidebar. */
+  --chrome: #48144a;
+  --chrome-deep: #3f0940;
+  --side: #592a5a;
+  --side-deep: #4b1a4f;
+  --chrome-text: #f6dff9;
+  /* Text in the frame that should stand out: the app's name, whatever the pointer is on. */
+  --chrome-strong: #ffffff;
+  --chrome-muted: rgb(246 223 249 / 78%);
+  --chrome-hover: rgb(255 255 255 / 10%);
+  --chrome-field: rgb(255 255 255 / 20%);
+  --chrome-tile: rgb(255 255 255 / 26%);
+  --chrome-active: #fbedff;
+  --chrome-active-text: #39063a;
+  --presence: #2bac76;
 
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* The conversation itself. */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --sunken: #f5f4f5;
+  --hover: #f8f8f8;
+  --border: #dddddd;
+  --border-strong: #a3a2a3;
+  --text: #1d1c1d;
+  --muted: #616061;
+  --accent: #007a5a;
+  --accent-ink: #ffffff;
+  --accent-soft: #e0f1ec;
+  --link: #1264a3;
+  --code: #c01343;
+  --danger: #c01343;
+  --danger-soft: #fbe9ee;
+  --add: #e3f5ea;
+  --del: #fbe9ee;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 10%);
+
+  --font: Lato, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --radius: 10px;
+  --radius: 8px;
+  --text-size: 15px;
+
+  /* The terminal. */
+  --term-bg: #282c34;
+  --term-fg: #ffffff;
+  --term-strip: #1d1f21;
+  --term-tab: #21252b;
+  --term-dim: #abb2bf;
+  --term-key: #3a3f4b;
 }
+
+/*
+ * These are the colours of the default theme, and what shows before a theme
+ * has been applied. The theme chosen on the Theme page sets the same
+ * variables on the page itself, which overrides everything here.
+ */
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #141517;
-    --surface: #1c1e21;
-    --sunken: #0f1011;
-    --border: #2d3035;
-    --text: #e9e7e2;
-    --muted: #9b988f;
-    --accent: #45c9a5;
-    --accent-ink: #08130f;
-    --accent-soft: #17312a;
-    --danger: #f0766c;
-    --danger-soft: #3a1d1a;
+    --chrome: #2c0d2e;
+    --chrome-deep: #240727;
+    --side: #3a1a3c;
+    --side-deep: #301233;
+
+    --bg: #1a1d21;
+    --surface: #222529;
+    --sunken: #111315;
+    --hover: #222529;
+    --border: #35373b;
+    --border-strong: #6b6d70;
+    --text: #d1d2d3;
+    --muted: #ababad;
+    --accent: #00805f;
+    --accent-ink: #ffffff;
+    --accent-soft: #173a31;
+    --link: #1d9bd1;
+    --code: #e8912d;
+    --danger: #f0688c;
+    --danger-soft: #3b1a24;
     --add: #15291c;
-    --del: #331b19;
-    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 40%);
+    --del: #331b22;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 45%);
   }
 }
 
@@ -56,7 +101,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.55 var(--font);
+  font: var(--text-size)/1.46668 var(--font);
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
 }
@@ -74,7 +119,7 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--link);
   outline-offset: 2px;
 }
 
@@ -86,14 +131,15 @@ button {
   min-height: 36px;
   padding: 6px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
-  font-weight: 500;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .btn:hover:not(:disabled) {
-  border-color: var(--muted);
+  border-color: var(--border-strong);
+  background: var(--hover);
 }
 
 .btn:disabled {
@@ -108,7 +154,8 @@ button {
 }
 
 .btn.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: var(--accent);
+  filter: brightness(1.1);
 }
 
 .btn.ghost {
@@ -128,9 +175,47 @@ button {
   height: 36px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
+}
+
+/* The bar across the top of each page in the main pane. */
+.pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 6px 20px;
+  padding-top: calc(6px + env(safe-area-inset-top));
+  border-bottom: 1px solid var(--border);
+}
+
+.pane-bar h1 {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.pane-bar .menu {
+  display: none;
+  flex: none;
+  margin-left: -8px;
+}
+
+@media (max-width: 820px) {
+  .pane-bar {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .pane-bar .menu {
+    display: inline-grid;
+  }
 }
 
 .icon-btn:hover {

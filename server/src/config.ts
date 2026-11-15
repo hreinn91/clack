@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +31,16 @@ const dataRoot = resolve(process.env.CLACK_DATA_DIR ?? resolve(here, '../../data
 mkdirSync(resolve(dataRoot, 'sessions'), { recursive: true });
 const dataDir = realpathSync(dataRoot);
 
+/** The account the server runs under, as a name: "hreinn" becomes "Hreinn". */
+function accountName(): string {
+  try {
+    const name = userInfo().username;
+    return name ? name[0]!.toUpperCase() + name.slice(1) : 'You';
+  } catch {
+    return 'You';
+  }
+}
+
 export const config = {
   port: Number(process.env.CLACK_PORT ?? 4317),
   /** 0.0.0.0 so other devices on the local network can reach the UI. */
@@ -44,6 +54,10 @@ export const config = {
   claudePath: process.env.CLACK_CLAUDE_PATH || undefined,
   /** An idle Claude Code process is shut down after this long; the chat resumes on the next prompt. */
   idleMs: Number(process.env.CLACK_IDLE_MINUTES ?? 20) * 60_000,
+  /** Whether the UI may open shells on this computer. On unless CLACK_TERMINAL says otherwise. */
+  terminal: !/^(0|off|false|no)$/i.test(process.env.CLACK_TERMINAL?.trim() ?? ''),
+  /** The name the person's own messages are shown under. */
+  userName: process.env.CLACK_USER_NAME?.trim() || accountName(),
   webDist: resolve(here, '../../web/dist'),
   token,
   tokenSource,

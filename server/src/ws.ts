@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import type { ClientMessage, ServerMessage } from '../../shared/protocol.ts';
+import type { ClientMessage, ServerMessage, TerminalClientMessage, TerminalServerMessage } from '../../shared/protocol.ts';
 import { logBus } from './log.ts';
 import { bus, isEffort, isPermissionMode, openSession } from './sessions.ts';
 import type { LiveSession, Listener } from './sessions.ts';
+import { getTerminal, terminalBus } from './terminal.ts';
+import { usageBus } from './usage.ts';
 
 const MAX_PROMPT_CHARS = 200_000;
 
@@ -18,6 +20,16 @@ export function registerWs(app: FastifyInstance): void {
 
   bus.on('sessions_changed', () => {
     const data = JSON.stringify({ t: 'sessions_changed' } satisfies ServerMessage);
+    for (const socket of alive.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
+  });
+
+  usageBus.on('changed', (usage) => {
+    const data = JSON.stringify({ t: 'usage', usage } satisfies ServerMessage);
+    for (const socket of alive.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
+  });
+
+  terminalBus.on('changed', () => {
+    const data = JSON.stringify({ t: 'terminals_changed' } satisfies ServerMessage);
     for (const socket of alive.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
   });
 
@@ -123,6 +135,41 @@ export function registerWs(app: FastifyInstance): void {
       alive.delete(socket);
       logWatchers.delete(send);
       leave();
+    });
+  });
+
+  // Each terminal has a socket of its own: keystrokes go one way, the shell's output the other.
+  app.get('/ws/term/:id', { websocket: true }, (socket, req) => {
+    const shell = getTerminal((req.params as { id: string }).id);
+    if (!shell) {
+      // Tells the browser this terminal is gone for good, so it does not keep trying.
+      socket.close(4404, 'No such terminal');
+      return;
+    }
+
+    const send = (msg: TerminalServerMessage) => {
+      if (socket.readyState !== socket.OPEN) return;
+      socket.send(JSON.stringify(msg));
+      if (msg.t === 'exit') socket.close(4404, 'The shell exited');
+    };
+    shell.attach(send);
+    alive.set(socket, true);
+    socket.on('pong', () => alive.set(socket, true));
+
+    socket.on('message', (raw) => {
+      let msg: TerminalClientMessage;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (msg.t === 'in' && typeof msg.data === 'string') shell.write(msg.data);
+      else if (msg.t === 'resize') shell.resize(msg.cols, msg.rows);
+    });
+
+    socket.on('close', () => {
+      alive.delete(socket);
+      shell.detach(send);
     });
   });
 }

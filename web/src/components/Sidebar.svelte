@@ -1,158 +1,177 @@
 <script lang="ts">
-  import { ago } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import ChatList from './ChatList.svelte';
+  import TreeDir from './TreeDir.svelte';
+
+  // On the Data page the sidebar shows the data directory instead of the chats.
+  const onData = $derived(app.route.name === 'data');
+
+  let refreshing = $state(false);
+
+  async function refresh() {
+    refreshing = true;
+    await app.refreshData();
+    refreshing = false;
+  }
 </script>
 
-<nav>
+<nav class="side" aria-label={onData ? 'Files' : 'Chats'}>
   <header>
     <span class="brand">clack</span>
-    <a class="btn" href="#/new">New chat</a>
+    {#if onData}
+      <button class="compose" class:spin={refreshing} aria-label="Refresh" title="Read the folders again" onclick={refresh}>
+        <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 10a6 6 0 1 1-1.8-4.3M16.5 3.5v3h-3" />
+        </svg>
+      </button>
+    {:else}
+    <a class="compose" href="#/new" aria-label="New chat" title="New chat">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 4H5a1.5 1.5 0 0 0-1.5 1.5v9.5A1.5 1.5 0 0 0 5 16.5h9.5A1.5 1.5 0 0 0 16 15v-4" />
+        <path d="M14.5 3.2a1.4 1.4 0 0 1 2 2L10 11.7l-2.7.7.7-2.7z" />
+      </svg>
+    </a>
+    {/if}
   </header>
 
-  <ul>
-    {#each app.sessions as session (session.sessionId)}
-      <li>
-        <a href={`#/s/${session.sessionId}`} class:active={session.sessionId === app.sessionId}>
-          <span class="title">{session.title}</span>
-          <span class="sub">
-            {#if session.running}<span class="spinner" aria-label="Working"></span>{/if}
-            <span class="project">{session.folder}</span>
-            <span class="when">{ago(session.lastModified)}</span>
-          </span>
-        </a>
-      </li>
-    {:else}
-      <li class="empty">No chats yet.</li>
-    {/each}
-  </ul>
+  <!-- On a phone the top bar is hidden, so the search field lives here instead. -->
+  <input
+    class="find"
+    type="search"
+    placeholder={onData ? 'Filter files' : 'Search chats and folders'}
+    aria-label={onData ? 'Filter files' : 'Search chats and folders'}
+    bind:value={app.search}
+  />
 
-  <footer>
-    <span class="status" class:off={!app.connected}>
-      <span class="dot"></span>
-      {app.connected ? 'Connected' : 'Reconnecting…'}
-    </span>
-    <span class="links">
-      <a class="btn ghost" href="#/debug/log" class:current={app.route.name === 'debug'}>Debug</a>
-      <button class="btn ghost" onclick={() => app.logout()}>Sign out</button>
-    </span>
-  </footer>
+  <div class="scroll">
+    {#if onData}
+      <section>
+        <div class="root">
+          <h2 title={app.dataDir}>Data</h2>
+          {#if app.terminalEnabled}
+            <button aria-label="Open a terminal in the data directory" title="Open a terminal in the data directory" onclick={() => app.newTerminal()}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+                <path d="M4.5 6l2 2-2 2M8.5 10h3" />
+              </svg>
+            </button>
+          {/if}
+        </div>
+        <TreeDir path="" depth={0} />
+      </section>
+    {:else}
+      <ChatList />
+    {/if}
+  </div>
 </nav>
 
 <style>
-  nav {
-    height: 100%;
+  .side {
     display: flex;
     flex-direction: column;
-    padding-top: env(safe-area-inset-top);
+    min-height: 0;
+    color: var(--chrome-muted);
   }
 
-  header,
-  footer {
+  header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 12px 14px;
-  }
-
-  footer {
-    border-top: 1px solid var(--border);
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
-    font-size: 13px;
-  }
-
-  .links {
-    display: inline-flex;
-  }
-
-  .links .btn {
-    padding: 6px 10px;
-  }
-
-  .links .current {
-    background: var(--accent-soft);
+    min-height: 50px;
+    padding: 6px 12px 6px 16px;
+    padding-top: calc(6px + env(safe-area-inset-top));
   }
 
   .brand {
-    font: 600 18px var(--mono);
-    letter-spacing: -0.02em;
+    color: var(--chrome-strong);
+    font-size: 18px;
+    font-weight: 900;
   }
 
-  a.btn {
-    text-decoration: none;
-    color: inherit;
+  .compose {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    color: var(--chrome-text);
   }
 
-  ul {
+  .compose:hover {
+    background: var(--chrome-hover);
+    color: var(--chrome-strong);
+  }
+
+  button.compose {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .compose.spin svg {
+    animation: spin 0.8s linear infinite;
+  }
+
+  .root {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 4px;
+  }
+
+  .root button {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--chrome-text);
+  }
+
+  .root button:hover {
+    background: var(--chrome-tile);
+    color: var(--chrome-strong);
+  }
+
+  .find {
+    display: none;
+    margin: 0 12px 8px;
+    height: 34px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--chrome-field);
+    color: var(--chrome-strong);
+    font-size: 16px;
+  }
+
+  .find::placeholder {
+    color: var(--chrome-text);
+    opacity: 1;
+  }
+
+  .scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    padding: 4px 8px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  h2 {
     margin: 0;
-    padding: 0 8px 8px;
-    list-style: none;
+    padding: 4px 8px;
+    color: var(--chrome-text);
+    font-size: 15px;
+    font-weight: 700;
   }
 
-  li a {
-    display: block;
-    padding: 9px 10px;
-    border-radius: 8px;
-    color: inherit;
-    text-decoration: none;
-  }
-
-  li a:hover {
-    background: var(--sunken);
-  }
-
-  li a.active {
-    background: var(--accent-soft);
-  }
-
-  .title {
-    display: block;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-weight: 500;
-  }
-
-  .sub {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--muted);
-    font-size: 12.5px;
-  }
-
-  .project {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-family: var(--mono);
-  }
-
-  .empty {
-    padding: 12px 10px;
-    color: var(--muted);
-  }
-
-  .status {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--muted);
-  }
-
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--accent);
-  }
-
-  .status.off .dot {
-    background: var(--danger);
+  @media (max-width: 820px) {
+    .find {
+      display: block;
+    }
   }
 </style>

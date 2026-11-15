@@ -13,7 +13,9 @@ export default defineConfig(({ mode }) => {
       host: true,
       port: 5173,
       proxy: {
-        '/api': server,
+        // Written out in full: the short form ('/api': server) rewrites the Host header,
+        // and the server then refuses the request as coming from another site.
+        '/api': { target: server },
         '/ws': { target: server, ws: true },
       },
     },

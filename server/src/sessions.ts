@@ -1,7 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
-import { getSessionInfo, getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk';
+import {
+  archiveSession,
+  deleteSession,
+  getSessionInfo,
+  getSessionMessages,
+  listSessions,
+  query,
+  renameSession,
+  unarchiveSession,
+} from '@anthropic-ai/claude-agent-sdk';
 import type {
   CanUseTool,
   Options,
@@ -12,6 +21,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type {
+  ContextUsage,
   Draft,
   EffortLevel,
   Item,
@@ -24,13 +34,16 @@ import type {
   SessionMeta,
   SessionState,
   SessionSummary,
+  Stamp,
 } from '../../shared/protocol.ts';
 import { config } from './config.ts';
-import { folderLabel, insideDir, insideSessions } from './folders.ts';
+import { ensureFolder, folderLabel, insideDir, insideSessions } from './folders.ts';
 import { log } from './log.ts';
-import { defaultPrefs, prefsFor, savePrefs } from './prefs.ts';
+import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
+import { relocateTranscript } from './relocate.ts';
 import type { Prefs } from './prefs.ts';
-import { assistantItems, blocksOf, itemsFromHistory, toolResultText } from './transcript.ts';
+import { assistantItems, blocksOf, itemsFromHistory, modelOf, readEfforts, toolResultText } from './transcript.ts';
+import { refreshUsageWith } from './usage.ts';
 
 export type Listener = (msg: ServerMessage) => void;
 
@@ -96,7 +109,8 @@ type Pending = {
  */
 export class LiveSession {
   readonly sessionId: string;
-  readonly cwd: string;
+  /** The folder Claude Code works in. Changes only through `move`. */
+  cwd: string;
   items: Item[];
   drafts: Draft[] = [];
   state: SessionState = 'idle';
@@ -107,17 +121,23 @@ export class LiveSession {
   /** The model the running process reports, which is how "default" gets a name. */
   activeModel: string | undefined;
   title: string | undefined;
+  /** How full the context window was when the last turn ended. */
+  context: ContextUsage | undefined;
   lastActivity = Date.now();
 
   /** False until Claude Code has written this session's transcript, after which it must be resumed rather than created. */
   private onDisk: boolean;
   private q: Query | undefined;
+  /** Settles when the running process has gone and its last messages are dealt with. */
+  private pumping: Promise<void> | undefined;
   private input: InputQueue | undefined;
   private listeners = new Set<Listener>();
   private pending = new Map<string, Pending>();
   private tools = new Map<string, ToolItem>();
   private streamDrafts = new Map<number, string>();
   private interrupting = false;
+  /** Replies added while no effort was chosen, by message uuid: what they ran at is looked up when the turn ends. */
+  private unsigned = new Map<string, Item[]>();
 
   constructor(init: { sessionId: string; cwd: string; onDisk: boolean; prefs: Prefs; items?: Item[]; title?: string }) {
     this.sessionId = init.sessionId;
@@ -153,6 +173,7 @@ export class LiveSession {
       effort: this.effort,
       activeModel: this.activeModel,
       title: this.title,
+      context: this.context,
     };
   }
 
@@ -180,8 +201,13 @@ export class LiveSession {
   prompt(text: string): void {
     if (this.state === 'running') throw new Error('Claude is still working. Stop it first or wait for it to finish.');
     const id = randomUUID();
-    if (!this.title) this.title = text.length > 80 ? `${text.slice(0, 80)}…` : text;
-    this.addItem({ kind: 'user', id, text });
+    if (!this.title) {
+      // A list of attached files at the end of the message is not what the chat is about.
+      // (The format is described with the Upload type in the shared protocol.)
+      const said = text.split('\n\nAttached files:\n')[0]!.trim() || text;
+      this.title = said.length > 80 ? `${said.slice(0, 80)}…` : said;
+    }
+    this.addItem({ kind: 'user', id, text, ts: Date.now() });
     this.setState('running');
     this.start();
     this.input!.push({
@@ -217,7 +243,8 @@ export class LiveSession {
     }
     this.model = prefs.model;
     this.effort = prefs.effort;
-    if (modelChanged && !this.q) this.activeModel = undefined;
+    // The next reply says which model the new choice really is; until then nothing is known.
+    if (modelChanged) this.activeModel = undefined;
     savePrefs(this.sessionId, prefs);
     this.log('notice', `Model set to ${prefs.model ?? 'default'}, effort ${prefs.effort ?? 'default'}`);
     this.emitMeta();
@@ -247,6 +274,50 @@ export class LiveSession {
     this.q?.close();
   }
 
+  /** Stops the process and waits until it has really gone, so its files can be touched. */
+  private async settle(): Promise<void> {
+    if (!this.q) return;
+    this.shutdown();
+    await this.pumping;
+  }
+
+  /** Gives the chat a title of the person's choosing. */
+  async rename(title: string): Promise<void> {
+    if (this.onDisk) await renameSession(this.sessionId, title);
+    this.title = title;
+    this.emitMeta();
+    bus.emit('sessions_changed');
+  }
+
+  /**
+   * Makes the chat work in another folder from the next message on. Nothing
+   * in either folder is moved or copied: only where Claude Code runs changes.
+   */
+  async move(cwd: string): Promise<void> {
+    if (this.state === 'running') throw new Error('Wait for Claude to finish before changing the folder.');
+    if (cwd === this.cwd) return;
+    await this.settle();
+    if (this.onDisk) await relocateTranscript(this.sessionId, cwd);
+    this.cwd = cwd;
+    saveMovedFolder(this.sessionId, folderLabel(cwd));
+    this.emitMeta();
+    this.notice('info', `This chat now works in the folder ${folderLabel(cwd)}.`);
+    bus.emit('sessions_changed');
+  }
+
+  /** Ends the chat for good: stops its process and tells anyone looking at it. */
+  async discard(): Promise<void> {
+    await this.settle();
+    for (const entry of [...this.pending.values()]) entry.finish({ behavior: 'deny', message: 'The chat was deleted.' });
+    const gone: ServerMessage = { t: 'error', sessionId: this.sessionId, message: 'This chat was deleted.' };
+    for (const listener of this.listeners) listener(gone);
+    this.listeners.clear();
+  }
+
+  get savedOnDisk(): boolean {
+    return this.onDisk;
+  }
+
   // ---- the Claude Code process ----------------------------------------------
 
   private start(): void {
@@ -266,7 +337,7 @@ export class LiveSession {
     const q = query({ prompt: input, options });
     this.input = input;
     this.q = q;
-    void this.pump(q);
+    this.pumping = this.pump(q);
   }
 
   private async pump(q: Query): Promise<void> {
@@ -317,8 +388,8 @@ export class LiveSession {
         const parent = msg.parent_tool_use_id;
         if (!parent) {
           // Each reply names the model that wrote it, which keeps the header right after a switch.
-          const model = msg.message.model;
-          if (model && !model.startsWith('<') && model !== this.activeModel) {
+          const model = modelOf(msg.message);
+          if (model && model !== this.activeModel) {
             this.activeModel = model;
             this.emitMeta();
           }
@@ -330,9 +401,14 @@ export class LiveSession {
             }
           }
         }
-        for (const item of assistantItems(msg.uuid, msg.message.content, parent)) {
-          this.addItem(item, parent ? undefined : this.takeDraft(item.kind));
+        const stamp: Stamp = { ts: Date.now() };
+        if (!parent) {
+          stamp.model = modelOf(msg.message);
+          if (this.effort) stamp.effort = this.effort;
         }
+        const added = assistantItems(msg.uuid, msg.message.content, parent, stamp);
+        if (!parent && !this.effort) this.unsigned.set(msg.uuid, [...(this.unsigned.get(msg.uuid) ?? []), ...added]);
+        for (const item of added) this.addItem(item, parent ? undefined : this.takeDraft(item.kind));
         break;
       }
 
@@ -357,8 +433,51 @@ export class LiveSession {
         this.interrupting = false;
         this.setState('idle');
         bus.emit('sessions_changed');
+        void this.signReplies();
+        void this.measure();
+        break;
+
+      case 'rate_limit_event':
+        // The plan's limits moved: read them again while a process is at hand.
+        if (this.q) void refreshUsageWith(this.q);
         break;
     }
+  }
+
+  /** After a turn: how full the context window is now, and how much of the plan's limits is used. */
+  private async measure(): Promise<void> {
+    const q = this.q;
+    if (!q) return;
+    try {
+      const usage = await q.getContextUsage({ detail: 'summary' });
+      this.context = { tokens: usage.totalTokens, max: usage.maxTokens, percent: Math.round(usage.percentage) };
+      this.emitMeta();
+    } catch {
+      // Nothing to show for this turn; the next one tries again.
+    }
+    await refreshUsageWith(q);
+  }
+
+  /**
+   * With "default effort" only Claude Code knows what a reply ran at, and it
+   * says so in the transcript file rather than on the reply. Once a turn is
+   * over the file is read and the replies from it are signed.
+   */
+  private async signReplies(): Promise<void> {
+    if (!this.unsigned.size) return;
+    const waiting = this.unsigned;
+    this.unsigned = new Map();
+    const efforts = await readEfforts(this.sessionId);
+    let changed = false;
+    for (const [uuid, items] of waiting) {
+      const effort = efforts.get(uuid);
+      if (!effort) continue;
+      for (const item of items) item.effort = effort;
+      changed = true;
+    }
+    if (!changed) return;
+    const snapshot = this.snapshot();
+    for (const listener of this.listeners) listener(snapshot);
   }
 
   private handleStream(event: Extract<SDKMessage, { type: 'stream_event' }>['event']): void {
@@ -473,7 +592,7 @@ export class LiveSession {
   }
 
   private notice(level: 'info' | 'error', text: string): void {
-    this.addItem({ kind: 'notice', id: randomUUID(), level, text });
+    this.addItem({ kind: 'notice', id: randomUUID(), level, text, ts: Date.now() });
   }
 
   /** Removes and returns the oldest draft of a kind, once its finished content has arrived. */
@@ -519,17 +638,65 @@ async function loadFromDisk(sessionId: string): Promise<LiveSession> {
   const info = await getSessionInfo(sessionId);
   // Sessions from anywhere else on this computer are treated as if they did not exist.
   if (!info?.cwd || !insideSessions(info.cwd)) throw new Error('Session not found');
-  const messages = await getSessionMessages(sessionId);
+  const [messages, efforts] = await Promise.all([getSessionMessages(sessionId), readEfforts(sessionId)]);
   const session = new LiveSession({
     sessionId,
-    cwd: info.cwd,
+    cwd: currentCwd(sessionId, info.cwd),
     onDisk: true,
     prefs: prefsFor(sessionId),
-    items: itemsFromHistory(messages),
+    items: itemsFromHistory(messages, efforts),
     title: info.customTitle || info.summary || info.firstPrompt,
   });
   live.set(sessionId, session);
   return session;
+}
+
+/**
+ * Where a saved chat works. For a chat that was moved, clack's own record
+ * wins over what the transcript says, as long as that folder still exists
+ * under data/sessions.
+ */
+function currentCwd(sessionId: string, recorded: string): string {
+  const moved = movedFolder(sessionId);
+  if (!moved) return recorded;
+  const cwd = resolve(config.sessionsDir, moved);
+  return insideSessions(cwd) ? cwd : recorded;
+}
+
+/** Trims a title someone typed to something that fits on a line. */
+function cleanTitle(title: unknown): string {
+  const clean = typeof title === 'string' ? title.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+  if (!clean) throw new Error('A chat needs a name.');
+  return clean;
+}
+
+export async function renameChat(sessionId: string, title: unknown): Promise<void> {
+  await (await openSession(sessionId)).rename(cleanTitle(title));
+}
+
+/** Makes a chat work in a folder under data/sessions, creating the folder if the name is new. */
+export async function moveChat(sessionId: string, folder: unknown): Promise<void> {
+  if (typeof folder !== 'string' || !folder.trim()) throw new Error('Name the folder to work in.');
+  const session = await openSession(sessionId);
+  await session.move(await ensureFolder(folder));
+}
+
+/** Puts a chat away, or takes it back out. Its conversation and files are untouched either way. */
+export async function setArchived(sessionId: string, archived: boolean): Promise<void> {
+  const session = await openSession(sessionId);
+  if (!session.savedOnDisk) throw new Error('This chat has nothing saved yet. Delete it instead.');
+  await (archived ? archiveSession(sessionId) : unarchiveSession(sessionId));
+  bus.emit('sessions_changed');
+}
+
+/** Deletes a chat's conversation for good. The files in its folder stay. */
+export async function deleteChat(sessionId: string): Promise<void> {
+  const session = await openSession(sessionId);
+  await session.discard();
+  live.delete(sessionId);
+  if (session.savedOnDisk) await deleteSession(sessionId);
+  forgetSession(sessionId);
+  bus.emit('sessions_changed');
 }
 
 export async function listSummaries(): Promise<SessionSummary[]> {
@@ -539,15 +706,17 @@ export async function listSummaries(): Promise<SessionSummary[]> {
   const seen = new Set<string>();
   const summaries: SessionSummary[] = [];
   for (const info of infos) {
-    if (info.archived || !info.cwd || !insideSessions(info.cwd)) continue;
+    if (!info.cwd || !insideSessions(info.cwd)) continue;
     seen.add(info.sessionId);
+    const open = live.get(info.sessionId);
     summaries.push({
       sessionId: info.sessionId,
       title: info.customTitle || info.summary || info.firstPrompt || 'Untitled',
-      folder: folderLabel(info.cwd),
+      folder: folderLabel(open?.cwd ?? currentCwd(info.sessionId, info.cwd)),
       gitBranch: info.gitBranch,
       lastModified: info.lastModified,
-      running: live.get(info.sessionId)?.state === 'running',
+      running: open?.state === 'running',
+      archived: info.archived === true,
     });
   }
   // A brand-new chat is not on disk until Claude Code has answered once.
@@ -559,6 +728,7 @@ export async function listSummaries(): Promise<SessionSummary[]> {
       folder: folderLabel(session.cwd),
       lastModified: session.lastActivity,
       running: session.state === 'running',
+      archived: false,
     });
   }
   return summaries.sort((a, b) => b.lastModified - a.lastModified).slice(0, 200);

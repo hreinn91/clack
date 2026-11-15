@@ -45,6 +45,7 @@
     display: grid;
     place-items: center;
     padding: 20px;
+    background: linear-gradient(160deg, var(--chrome), var(--chrome-deep) 70%);
   }
 
   form {
@@ -52,15 +53,15 @@
     display: grid;
     gap: 12px;
     padding: 28px;
-    border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 10px;
     background: var(--surface);
+    box-shadow: var(--shadow);
   }
 
   h1 {
     margin: 0;
-    font: 600 22px var(--mono);
-    letter-spacing: -0.02em;
+    font-size: 26px;
+    font-weight: 900;
   }
 
   p {

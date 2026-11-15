@@ -32,9 +32,14 @@
   $effect(() => {
     void app.loadFolders();
   });
+
+  // Arriving from a folder in the sidebar: start with that folder filled in.
+  $effect(() => {
+    if (app.route.name === 'new' && app.route.folder) name = app.route.folder;
+  });
 </script>
 
-<header class="bar">
+<header class="pane-bar">
   <button class="icon-btn menu" aria-label="Open menu" onclick={onmenu}>
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
       <path d="M3 5.5h14M3 10h14M3 14.5h14" />
@@ -96,36 +101,15 @@
 </div>
 
 <style>
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 54px;
-    padding: 8px 14px;
-    padding-top: calc(8px + env(safe-area-inset-top));
-    border-bottom: 1px solid var(--border);
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  .menu {
-    display: none;
-  }
-
   .scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 28px 16px calc(24px + env(safe-area-inset-bottom));
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
   }
 
   .panel {
-    max-width: 600px;
-    margin: 0 auto;
+    max-width: 620px;
     display: grid;
     gap: 28px;
   }
@@ -138,8 +122,8 @@
 
   h2 {
     margin: 0;
-    font-size: 17px;
-    font-weight: 600;
+    font-size: 18px;
+    font-weight: 900;
   }
 
   .hint {
@@ -232,12 +216,6 @@
   .error {
     margin: 0;
     color: var(--danger);
-  }
-
-  @media (max-width: 820px) {
-    .menu {
-      display: inline-grid;
-    }
   }
 
   @media (max-width: 480px) {

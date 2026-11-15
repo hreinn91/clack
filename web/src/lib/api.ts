@@ -7,13 +7,13 @@ export class ApiError extends Error {
   }
 }
 
-/** GET when no body is given, POST with a JSON body otherwise. */
-export async function api<T>(path: string, body?: unknown): Promise<T> {
+/** GET when no body is given, POST with a JSON body otherwise; `method` overrides either. */
+export async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
   const res = await fetch(
     path,
     body === undefined
-      ? undefined
-      : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+      ? { method: method ?? 'GET' }
+      : { method: method ?? 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
   );
   if (!res.ok) {
     let message = `Request failed (${res.status})`;

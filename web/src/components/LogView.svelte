@@ -183,7 +183,7 @@
   }
 
   .meta a {
-    color: var(--accent);
+    color: var(--link);
     text-decoration: none;
   }
 
@@ -219,7 +219,7 @@
     padding: 0;
     border: 0;
     background: none;
-    color: var(--accent);
+    color: var(--link);
     font-size: 12.5px;
   }
 

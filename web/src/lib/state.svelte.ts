@@ -2,6 +2,8 @@ import type {
   ClientMessage,
   Draft,
   EffortLevel,
+  FileListing,
+  FilePreview,
   FolderInfo,
   Item,
   LogEntry,
@@ -11,28 +13,76 @@ import type {
   PermissionDecision,
   PermissionMode,
   PermissionRequest,
+  PlanUsage,
   ServerMessage,
   SessionEvent,
   SessionMeta,
   SessionSummary,
+  TerminalInfo,
+  Upload,
 } from '../../../shared/protocol';
 import { api, ApiError } from './api';
+import { authorName, withEffort } from './format';
 
-export type Route = { name: 'new' } | { name: 'session'; id: string } | { name: 'debug'; tab: 'log' };
+export type Route =
+  | { name: 'new'; folder?: string }
+  | { name: 'session'; id: string }
+  | { name: 'debug'; tab: 'log' }
+  | { name: 'data' }
+  | { name: 'theme' }
+  | { name: 'usage' };
 
 function parseRoute(): Route {
   const match = location.hash.match(/^#\/s\/([0-9a-f-]{36})$/i);
   if (match) return { name: 'session', id: match[1]! };
   // Only one debug view so far, so #/debug lands on it too.
   if (/^#\/debug(\/log)?$/.test(location.hash)) return { name: 'debug', tab: 'log' };
-  return { name: 'new' };
+  if (location.hash === '#/data') return { name: 'data' };
+  if (location.hash === '#/theme') return { name: 'theme' };
+  if (location.hash === '#/usage') return { name: 'usage' };
+  // A folder picked in the sidebar: the new-chat page opens with it filled in.
+  const folder = location.hash.match(/^#\/new\/([a-z0-9-]{1,64})$/);
+  return folder ? { name: 'new', folder: folder[1]! } : { name: 'new' };
 }
 
 const MAX_LOGS = 2000;
+/** The server refuses anything larger. */
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+/** How narrow and wide the sidebar can be dragged, and where it starts, in pixels. */
+export const SIDEBAR = { min: 180, max: 520, initial: 260 };
+const SIDEBAR_KEY = 'clack.sidebar';
+
+// A layout preference belongs to the screen it was set on, so it stays in the browser.
+function savedSidebar(): { width: number; hidden: boolean } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SIDEBAR_KEY) ?? 'null') as { width?: unknown; hidden?: unknown } | null;
+    const width = Number(saved?.width);
+    if (width >= SIDEBAR.min && width <= SIDEBAR.max) return { width, hidden: saved?.hidden === true };
+  } catch {
+    // Storage is unavailable or holds something else: start from the defaults.
+  }
+  return { width: SIDEBAR.initial, hidden: false };
+}
 
 class AppState {
   /** null until the first check has come back. */
   authed = $state<boolean | null>(null);
+  /** The name the person's own messages are shown under. */
+  userName = $state('You');
+  /** Typed into the search field: narrows the chats and folders in the sidebar. */
+  search = $state('');
+  /** How much of the Claude plan's limits is used. Null until the first answer. */
+  usage = $state<PlanUsage | null>(null);
+  /** True while the figures are being asked for. */
+  usageLoading = $state(false);
+  /** Whether the quick switcher (Cmd+K) is showing. */
+  paletteOpen = $state(false);
+  /** A question about one chat that is waiting for an answer: its new name, its new folder, or whether to delete it. */
+  dialog = $state<{ kind: 'rename' | 'move' | 'delete'; session: SessionSummary } | null>(null);
+  /** The sidebar's width in pixels, and whether it is tucked away to leave the page more room. */
+  sidebarWidth = $state(savedSidebar().width);
+  sidebarHidden = $state(savedSidebar().hidden);
   sessions = $state<SessionSummary[]>([]);
   folders = $state<FolderInfo[]>([]);
   /** Empty until Claude Code has been asked which models this account can use. */
@@ -47,6 +97,22 @@ class AppState {
   pending = $state<PermissionRequest[]>([]);
   opening = $state(false);
   error = $state<string | null>(null);
+
+  // The Data page: the data directory as a tree, the file being looked at, and the shells opened in it.
+  /** Where the data directory is on the server. */
+  dataDir = $state('');
+  /** Whether this server lets the UI open terminals. */
+  terminalEnabled = $state(false);
+  /** Folder listings loaded so far, by path relative to the data directory ('' is the directory itself). */
+  tree = $state<Record<string, FileListing>>({});
+  /** Which folders are unfolded in the tree. */
+  treeOpen = $state<Record<string, boolean>>({ '': true, sessions: true });
+  file = $state<FilePreview | null>(null);
+  /** The path of a file that is being fetched, so the page can say so. */
+  fileLoading = $state<string | null>(null);
+  terminals = $state<TerminalInfo[]>([]);
+  /** The terminal whose tab is in front. */
+  terminalId = $state<string | null>(null);
 
   // The activity log, filled only while the debug page is open.
   logs = $state<LogEntry[]>([]);
@@ -64,6 +130,41 @@ class AppState {
 
   get running(): boolean {
     return this.meta?.state === 'running';
+  }
+
+  /**
+   * The name Claude's next reply will be shown under, such as "Fable 5.2 High".
+   * Until Claude Code reports the model it is running, the model picker's own
+   * label stands in, then whoever replied last in this chat.
+   */
+  get modelName(): string {
+    const meta = this.meta;
+    if (meta?.activeModel) return authorName(meta.activeModel, meta.effort);
+    const picked = meta?.model ? this.models.find((m) => m.value === meta.model)?.label : undefined;
+    if (picked) return withEffort(picked, meta?.effort);
+    let last: string | undefined;
+    for (const item of this.items) if (item.model) last = item.model;
+    return authorName(last, meta?.effort);
+  }
+
+  /** Sets the sidebar's width, kept within its limits. Resizing a hidden sidebar brings it back. */
+  resizeSidebar(width: number): void {
+    this.sidebarWidth = Math.round(Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, width)));
+    this.sidebarHidden = false;
+    this.#saveSidebar();
+  }
+
+  toggleSidebar(hidden = !this.sidebarHidden): void {
+    this.sidebarHidden = hidden;
+    this.#saveSidebar();
+  }
+
+  #saveSidebar(): void {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, JSON.stringify({ width: this.sidebarWidth, hidden: this.sidebarHidden }));
+    } catch {
+      // Not remembered this time; the layout still changes.
+    }
   }
 
   async init(): Promise<void> {
@@ -103,6 +204,18 @@ class AppState {
     }
   }
 
+  /** Reads how much of the plan's limits is used. `fresh` asks Claude Code again instead of taking the server's last answer. */
+  async loadUsage(fresh = false): Promise<void> {
+    this.usageLoading = true;
+    try {
+      this.usage = await api<PlanUsage>(`/api/usage${fresh ? '?fresh=1' : ''}`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) this.authed = false;
+    } finally {
+      this.usageLoading = false;
+    }
+  }
+
   async loadModels(): Promise<void> {
     if (this.models.length) return;
     try {
@@ -113,11 +226,119 @@ class AppState {
     }
   }
 
+  // ---- changes to an existing chat. These throw, so whoever asked can say what went wrong. ----
+
+  async renameChat(id: string, title: string): Promise<void> {
+    await api(`/api/sessions/${id}`, { title }, 'PATCH');
+    await this.loadSessions();
+  }
+
+  /** Makes a chat work in another folder under data/sessions, creating it if the name is new. */
+  async moveChat(id: string, folder: string): Promise<void> {
+    await api(`/api/sessions/${id}`, { folder }, 'PATCH');
+    await Promise.all([this.loadSessions(), this.loadFolders()]);
+  }
+
+  async archiveChat(id: string, archived: boolean): Promise<void> {
+    try {
+      await api(`/api/sessions/${id}`, { archived }, 'PATCH');
+      await this.loadSessions();
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
+  async deleteChat(id: string): Promise<void> {
+    await api(`/api/sessions/${id}`, undefined, 'DELETE');
+    // Leave before the list refreshes, so the page never shows a chat that is gone.
+    if (this.sessionId === id) location.hash = '#/new';
+    await this.loadSessions();
+  }
+
   /** Starts a chat in a folder under data/sessions, creating the folder if the name is new. */
   async newSession(folder: string): Promise<void> {
     try {
       const { sessionId } = await api<{ sessionId: string }>('/api/sessions', { folder });
       location.hash = `#/s/${sessionId}`;
+      void this.loadFolders();
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
+  // ---- the data directory ---------------------------------------------------------
+
+  async loadDir(path: string): Promise<void> {
+    try {
+      this.tree[path] = await api<FileListing>(`/api/files?path=${encodeURIComponent(path)}`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        // The folder was removed since the tree last looked.
+        delete this.tree[path];
+        delete this.treeOpen[path];
+      } else {
+        this.#fail(err);
+      }
+    }
+  }
+
+  toggleDir(path: string): void {
+    this.treeOpen[path] = !this.treeOpen[path];
+    if (this.treeOpen[path]) void this.loadDir(path);
+  }
+
+  /** Reads every unfolded folder again, and the open file with them. */
+  async refreshData(): Promise<void> {
+    const open = Object.keys(this.treeOpen).filter((path) => this.treeOpen[path]);
+    await Promise.all(open.map((path) => this.loadDir(path)));
+    if (this.file) await this.openFile(this.file.path);
+  }
+
+  async openFile(path: string): Promise<void> {
+    this.fileLoading = path;
+    try {
+      const preview = await api<FilePreview>(`/api/files/preview?path=${encodeURIComponent(path)}`);
+      // A slow answer must not replace a file picked after it.
+      if (this.fileLoading === path) this.file = preview;
+    } catch (err) {
+      if (this.file?.path === path) this.file = null;
+      this.#fail(err);
+    } finally {
+      if (this.fileLoading === path) this.fileLoading = null;
+    }
+  }
+
+  closeFile(): void {
+    this.file = null;
+    this.fileLoading = null;
+  }
+
+  async loadTerminals(): Promise<void> {
+    if (!this.terminalEnabled) return;
+    try {
+      this.terminals = await api<TerminalInfo[]>('/api/terminals');
+      if (!this.terminals.some((t) => t.id === this.terminalId)) this.terminalId = this.terminals.at(-1)?.id ?? null;
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
+  /** Starts a shell in a folder of the data directory and brings its tab to the front. */
+  async newTerminal(path = ''): Promise<void> {
+    try {
+      const terminal = await api<TerminalInfo>('/api/terminals', { path });
+      if (!this.terminals.some((t) => t.id === terminal.id)) this.terminals.push(terminal);
+      this.terminalId = terminal.id;
+      if (this.route.name !== 'data') location.hash = '#/data';
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
+  /** Ends a shell, and with it whatever was running there. */
+  async closeTerminal(id: string): Promise<void> {
+    try {
+      await api(`/api/terminals/${id}`, undefined, 'DELETE');
     } catch (err) {
       this.#fail(err);
     }
@@ -139,6 +360,29 @@ class AppState {
 
   configure(model: string | null, effort: EffortLevel | null): void {
     if (this.sessionId) this.#send({ t: 'config', sessionId: this.sessionId, model, effort });
+  }
+
+  /** Saves a file in the open chat's folder so it can be attached to a message. */
+  async upload(file: File): Promise<Upload | null> {
+    const id = this.sessionId;
+    if (!id) return null;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      this.error = `${file.name} is larger than 25 MB, which is the most that can be attached.`;
+      return null;
+    }
+    try {
+      const res = await fetch(`/api/sessions/${id}/files?name=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: file,
+      });
+      if (res.status === 401) this.authed = false;
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `${file.name} could not be attached (${res.status}).`);
+      return (await res.json()) as Upload;
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : String(err);
+      return null;
+    }
   }
 
   prompt(text: string): boolean {
@@ -164,10 +408,15 @@ class AppState {
     try {
       const me = await api<Me>('/api/me');
       this.authed = me.authed;
+      if (me.name) this.userName = me.name;
+      this.dataDir = me.dataDir ?? '';
+      this.terminalEnabled = me.terminal === true;
       if (me.authed) {
         this.#connect();
         void this.loadSessions();
+        void this.loadFolders();
         void this.loadModels();
+        void this.loadUsage();
       }
     } catch {
       // The server is unreachable: keep trying rather than showing a login form that cannot work.
@@ -217,6 +466,8 @@ class AppState {
   }
 
   #wake(): void {
+    // Back after a while: the limits may have moved, or started over, in the meantime.
+    if (this.authed && this.usage && Date.now() - this.usage.fetchedAt > 5 * 60_000) void this.loadUsage();
     if (!this.authed || this.#ws) return;
     clearTimeout(this.#retryTimer);
     this.#retryMs = 500;
@@ -268,7 +519,16 @@ class AppState {
         break;
       case 'sessions_changed':
         clearTimeout(this.#listTimer);
-        this.#listTimer = setTimeout(() => void this.loadSessions(), 150);
+        this.#listTimer = setTimeout(() => {
+          void this.loadSessions();
+          void this.loadFolders();
+        }, 150);
+        break;
+      case 'terminals_changed':
+        void this.loadTerminals();
+        break;
+      case 'usage':
+        this.usage = msg.usage;
         break;
       case 'log':
         // The initial load and the live feed can overlap by an entry or two.

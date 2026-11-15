@@ -10,17 +10,27 @@ on the server computer, where it reads files, runs commands and edits code.
 browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  Anthropic
 ```
 
+![clack showing a chat in the Synthwave theme: chats grouped by folder on the left, the conversation on the right](docs/screenshot-synthwave.png)
+
+*A chat in the Synthwave theme, one of the [themes](#themes) that come with clack.*
+
 ## What it does
 
-- Chat with streaming replies
+- Chat with streaming replies, laid out like a team chat app: chats in a sidebar, and every
+  message under the name of who sent it
 - Each chat works in its own folder under `data/sessions`, which you name when you start it
 - Lists the chats started through clack and resumes them
 - Pick the model and effort level per chat
+- Attach pictures and documents to a message for Claude to look at
+- See how much of your Claude plan's limits is used, on a page of its own and as a ring
+  beside the send button
 - Logs every prompt, response, tool call and permission decision, with a live log page in the UI
 - Shows permission prompts in the UI: allow once, always allow, or deny
 - Answers Claude's multiple-choice questions and plan approvals
 - Stop button, and a switch between "ask before changes", "accept file edits" and "plan only"
 - Reconnects on its own, so a phone that went to sleep picks up where the conversation is now
+- A Data page with the data directory as a folder tree, file previews, and terminals that
+  run a shell on the server computer
 
 ## Setup
 
@@ -49,6 +59,94 @@ npm start
 The server prints its addresses and an access token. Open the "Local network" address on
 your other device and enter the token once; the browser stays signed in after that.
 
+## The interface
+
+The window has four parts:
+
+- **Top bar:** back and forward, and a search field that narrows the chats and folders
+  in the sidebar as you type. Escape clears it.
+- **Rail** on the far left: **Home** returns to the most recent chat, **Usage** shows
+  your plan's [limits](#usage), **Activity** opens
+  the [activity log](#activity-log), **Data** opens the [data page](#data-page),
+  **Theme** opens the [themes](#themes), **+** starts a chat, and your picture at the bottom shows whether the browser is connected
+  and holds **Sign out**.
+- **Sidebar:** **Chats** lists the conversations under the folder each works in, the
+  folder with the most recent chat first. The dot before a chat is lit and pulsing
+  while Claude is working in it. See [Managing chats](#managing-chats).
+- **Conversation:** messages are stacked on the left, each with a picture, a name and
+  the time. Yours carry your name. Claude's carry the model and the effort it ran at,
+  such as **Fable 5.2 High**, so a chat that switched model or effort part-way shows
+  who wrote what. Everything Claude did in one turn (thinking, tool calls, text) sits
+  under a single name.
+
+Your name is the name of the account the server runs as; set `CLACK_USER_NAME` in `.env`
+to change it. With "Default effort" chosen, a reply is first signed with the model alone
+and gains the effort when the turn ends, because Claude Code only records which effort
+it picked in the chat's transcript.
+
+The sidebar can be resized and put away to leave the conversation more room:
+
+- Drag its right edge to make it narrower or wider. Double-click the edge to go back to
+  the usual width.
+- Hide or show it with the button at the left of the top bar, or with Cmd+Shift+D
+  (Ctrl+Shift+D on Windows and Linux). Dragging the edge all the way to the left hides
+  it too, and dragging the edge back out shows it again.
+- The edge also takes keyboard focus: the left and right arrow keys resize, Enter hides
+  or shows.
+
+The width and whether the sidebar is hidden are remembered per browser.
+
+On a phone the rail and sidebar slide in from the left with the menu button, and the
+search field moves into the sidebar.
+
+Out of the box the colours follow the device's light or dark setting; see
+[Themes](#themes) for the rest. The fonts are bundled with the app, so the UI loads
+nothing from outside the clack server.
+
+## Data page
+
+**Data** in the rail shows what is in the data directory and lets you work in it.
+
+**Folder tree.** While the page is open the sidebar shows the data directory instead of
+the chats. Click a folder to unfold it and a file to look at it. The search field narrows
+the files by name. The round arrow at the top reads the folders again; Claude changes
+files behind the page's back, and the tree is otherwise only read when you open the page
+or unfold a folder. Hovering a folder shows two buttons: start a chat in it (session
+folders only) and open a terminal in it.
+
+**File preview.** Text files show their first 256 KB, pictures (PNG, JPEG, GIF, WebP)
+are shown as pictures, and anything else is reported as not being text. The preview is
+read-only. Drag the line between the preview and the terminals to give either more room.
+
+**Terminals.** Each tab is a login shell on the server computer, started in the folder
+you picked, or in the data directory with **+**. It is the same shell with the same
+configuration you get in a terminal on that computer.
+
+- A shell keeps running on the server when you leave the page, close the browser or a
+  phone goes to sleep. Coming back reconnects and redraws its recent output (the last
+  400,000 characters).
+- Typing `exit`, or closing the tab, ends the shell and whatever was running in it.
+  Stopping the clack server ends all of them.
+- Up to 12 shells can be open at once.
+- On a touch screen a row of extra keys (Esc, Tab, Ctrl+C, Ctrl+D, arrows) appears under
+  the terminal.
+- What you do in a terminal is not written to the [activity log](#activity-log).
+
+The terminal emulator is [xterm.js](https://xtermjs.org), drawn in the colours of the
+chosen theme with JetBrains Mono. It is part of the web app: nothing needs to be
+installed on the computer you browse from. A shell is started at the size of the browser
+that opens it. The shell side uses
+[node-pty](https://github.com/microsoft/node-pty), which ships ready-built for macOS and
+Windows. On Linux it is compiled during `npm install`, which needs a C++ toolchain and,
+with newer versions of npm, permission to run its install script:
+
+```bash
+npm install-scripts approve node-pty
+```
+
+To remove terminals, set `CLACK_TERMINAL=off` in `.env`. The tree and previews stay.
+See [Security](#security) before using terminals on a network you share.
+
 ## Where chats work
 
 On first start the server creates a `data` directory next to the code. It is not checked in.
@@ -72,10 +170,82 @@ See [Security](#security) for what this limit does and does not guarantee.
 
 ## Model and effort
 
-The message box has a model picker and an effort picker. The list of models comes from
-Claude Code, so it matches what your Claude account can use. A choice applies from the
+The message box has a model menu and an effort menu, next to the one for the permission
+mode. Each opens as a list of every choice, with a line saying what it is for. The list
+of models comes from Claude Code, so it matches what your Claude account can use. A choice applies from the
 next message, is remembered for that chat, and becomes the starting point for new chats.
 "Default" leaves the choice to Claude Code.
+
+## Usage
+
+**Usage** in the rail shows how much of your Claude plan's limits is used: the current
+five-hour session, the week, and any limits that apply to one model, each with the time
+it starts over. These limits cover everything you do with Claude, on any device, not
+only what goes through clack. Extra pay-as-you-go usage is listed too when it is
+switched on. With an API key or a cloud provider there are no plan limits, and the page
+says so.
+
+In a chat, the small ring beside the send button shows the limit that is closest to
+running out. It is blue while there is plenty left, turns amber as it runs low and red
+near the end. Clicking it lists every limit, and how full the model's context window is
+in that chat (known once a turn has finished there).
+
+The figures are read again after every turn in any chat, when Claude Code reports that
+a limit has moved, and with **Refresh** on the page. They come from a part of the Agent
+SDK that is marked experimental, so a future version may change or remove it; clack
+then shows what it can still read.
+
+## Managing chats
+
+The sidebar lists chats under the folder each one works in. Click a folder's name to
+fold it; the **+** beside it starts another chat there.
+
+- **Rename:** click the title at the top of a chat, or use **Rename…** in a chat's
+  **⋯** menu (in the sidebar row, or at the top right of the chat).
+- **Change folder:** click the folder button beside the title, or **Change folder…** in
+  the menu. Pick an existing folder or type a new name to create one under
+  `data/sessions`. Claude works there from the next message and keeps the conversation
+  so far. No files are moved: what the chat made or was given earlier stays in the old
+  folder, and pictures attached before the move are shown by name only.
+- **Archive:** puts a chat in the **Archived** section at the bottom of the sidebar.
+  Take it out again from its menu; sending a message in it does the same.
+- **Delete:** removes the conversation for good, after asking. The files in its folder
+  stay.
+
+**Quick switcher:** Cmd+K (Ctrl+K on Windows and Linux), or the button in the search
+field, opens a box for jumping around. Type part of a chat's name or folder and press
+Enter to open it. Typing a folder name also offers to start a new chat there, creating
+the folder if it is new. The pages (Usage, Activity, Data, Theme) are listed too.
+
+Changing a chat's folder moves the conversation's file inside Claude Code's own storage
+(`~/.claude/projects`), which is not a public interface of Claude Code, so a future
+version of Claude Code could break it.
+
+## Themes
+
+**Theme** in the rail changes how clack looks. The choice is remembered per browser.
+
+- **Presets:** Aubergine (automatic light or dark, or either one fixed), One Dark,
+  Dracula, Solarized Dark and Light, Cyberpunk, Synthwave, Tokyo Night, Nord, Gruvbox,
+  Catppuccin Mocha and Latte. Each also colours the terminal.
+- **Colours:** any of a theme's main colours can be changed with a colour picker or a
+  hex code; hover shades and soft backgrounds are worked out from them. **Back to …**
+  undoes the changes, and picking another preset starts over from its colours.
+- **Text:** the font (Lato, system, serif or monospace) and the size of message text.
+
+## Attaching files
+
+The **+** at the left of the message box attaches files to the next message: pictures,
+text documents, or anything else Claude should look at. Dropping files on the message
+box or pasting a copied picture does the same. Each file is shown above the message
+until you send it, and can be taken off again with its ×.
+
+An attached file is saved in the chat's own folder, under `uploads/`, at most 25 MB
+each, and the message tells Claude where it is, so Claude reads it like any other file
+in the folder. A file with the same name as an earlier one gets a number added rather
+than replacing it. Taking a file off a message before sending does not delete it from
+`uploads/`. In the conversation, attached pictures are shown as pictures and other
+files by name; clicking one opens it on the [data page](#data-page).
 
 ## Activity log
 
@@ -83,7 +253,7 @@ Everything that happens in a chat is logged: your prompts, Claude's responses (w
 model that wrote them), tool calls and their results, permission decisions including
 requests the server refused on its own, and errors.
 
-- **In the UI:** open **Debug** in the sidebar, or go to `#/debug/log`. The page shows the
+- **In the UI:** open **Activity** in the rail, or go to `#/debug/log`. The page shows the
   most recent 1,000 entries, follows new ones as they arrive, and can be filtered by type
   or by text. The folder name on each entry links to that chat.
 - **On disk:** `data/logs/clack-YYYY-MM-DD.jsonl`, one JSON object per line. These files
@@ -110,7 +280,8 @@ claude --resume <session-id>
 ## Configuration
 
 Copy `.env.example` to `.env` to change the port, the data directory, the access token,
-or the idle timeout. Everything has a default.
+the idle timeout, the name your messages are shown under, or to turn terminals off.
+Everything has a default.
 
 ## Development
 
@@ -134,10 +305,19 @@ npm run check
 | `server/src/folders.ts` | Creates and lists the chat folders under `data/sessions` |
 | `server/src/models.ts` | Asks Claude Code which models are available |
 | `server/src/prefs.ts` | Remembers each chat's model and effort |
-| `server/src/log.ts` | Writes the activity log and keeps the recent entries for the debug page |
+| `server/src/transcript.ts` | Turns Claude Code's saved messages into what the UI shows, with each reply's time, model and effort |
+| `server/src/log.ts` | Writes the activity log and keeps the recent entries for the activity page |
+| `server/src/files.ts` | Lists folders and previews files for the data page, and keeps both inside the data directory |
+| `server/src/terminal.ts` | Runs the shells behind the data page's terminals |
+| `server/src/uploads.ts` | Saves files attached to a message into the chat's folder |
+| `server/src/usage.ts` | Reads how much of the Claude plan's limits is used |
+| `server/src/relocate.ts` | Moves a conversation within Claude Code's storage when a chat changes folder |
+| `web/src/lib/theme.svelte.ts` | The themes, and how the app's colours are worked out from one |
 | `server/src/index.ts` | Fastify server: sign-in, session list, folders, models, static files |
 | `shared/protocol.ts` | Message types shared by server and UI |
-| `web/src` | Svelte UI |
+| `web/src/App.svelte` | The window: top bar, rail, sidebar and the open page |
+| `web/src/components` | Svelte components; `Chat.svelte` groups the transcript into messages by sender, `Data.svelte` is the data page |
+| `web/src/app.css` | The colour scheme and shared styles |
 
 ## Security
 
@@ -162,6 +342,22 @@ It is a guard, not a sandbox. Shell commands still run as your user account:
 
 If people other than you will use the UI, treat it as giving them a shell on the server.
 
+### Terminals and files
+
+- A terminal on the data page is a shell running as your user account. It starts in the
+  data directory but is not held there: `cd` goes anywhere you can go. This gives a
+  signed-in person nothing they could not already get by having Claude run commands, but
+  it is direct and asks no permission.
+- The folder tree and file previews are held to the data directory. Paths that lead out
+  of it, including through symlinks, are refused by the server.
+- Over plain HTTP everything typed into a terminal, such as a `sudo` password, can be
+  read by others on the same network, like the rest of the traffic.
+- The shell does not get the server's `CLACK_TOKEN` variable, but it can read the token
+  file like any program run as you.
+- Set `CLACK_TERMINAL=off` to remove terminals from the UI and the server.
+- Attached files can only land in the `uploads/` folder of a chat. Their names are
+  reduced to plain file names first, and an existing file is never overwritten.
+
 ### Network and token
 
 - Keep it on a network you trust. Do not forward the port to the internet.
@@ -171,7 +367,7 @@ If people other than you will use the UI, treat it as giving them a shell on the
 - The access token is stored in `~/.config/clack/token`. Delete that file and restart to
   get a new one, which also signs every browser out.
 - `data/logs` holds every prompt and response in plain text, and anyone signed in to the
-  UI can read all of it on the debug page, across all chats.
+  UI can read all of it on the activity page, across all chats.
 - `data/` is not checked in, but it holds whatever the chats produced. Claude Code's own
   transcripts are stored outside the repository, in `~/.claude/projects`.
 - This is for your own use with your own Claude subscription. Anthropic's terms do not

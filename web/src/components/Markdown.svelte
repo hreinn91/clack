@@ -37,7 +37,7 @@
   .md :global(h4) {
     margin: 1.1em 0 0.4em;
     font-size: 1.05em;
-    font-weight: 650;
+    font-weight: 900;
     line-height: 1.3;
   }
 
@@ -59,26 +59,40 @@
   }
 
   .md :global(a) {
-    color: var(--accent);
+    color: var(--link);
+    text-decoration: none;
+  }
+
+  .md :global(a:hover) {
+    text-decoration: underline;
+  }
+
+  .md :global(strong) {
+    font-weight: 700;
   }
 
   .md :global(code) {
-    padding: 0.1em 0.35em;
-    border-radius: 5px;
+    padding: 0.1em 0.3em;
+    border: 1px solid var(--border);
+    border-radius: 3px;
     background: var(--sunken);
-    font: 0.88em var(--mono);
+    color: var(--code);
+    font: 0.8em var(--mono);
   }
 
   .md :global(pre) {
-    padding: 10px 12px;
-    border-radius: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
     background: var(--sunken);
     overflow-x: auto;
   }
 
   .md :global(pre code) {
     padding: 0;
+    border: 0;
     background: none;
+    color: inherit;
     font-size: 12.5px;
     line-height: 1.5;
   }
