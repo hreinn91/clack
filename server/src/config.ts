@@ -31,10 +31,14 @@ const dataRoot = resolve(process.env.CLACK_DATA_DIR ?? resolve(here, '../../data
 mkdirSync(resolve(dataRoot, 'sessions'), { recursive: true });
 const dataDir = realpathSync(dataRoot);
 
-/** The account the server runs under, as a name: "hreinn" becomes "Hreinn". */
+/**
+ * The account the server runs under, as a name: "hreinn" becomes "Hreinn".
+ * In a container that account is the image's own, so Docker Compose passes
+ * along the name of whoever started it instead.
+ */
 function accountName(): string {
   try {
-    const name = userInfo().username;
+    const name = process.env.CLACK_HOST_USER?.trim() || (process.env.CLACK_CONTAINER ? '' : userInfo().username);
     return name ? name[0]!.toUpperCase() + name.slice(1) : 'You';
   } catch {
     return 'You';
@@ -58,6 +62,8 @@ export const config = {
   terminal: !/^(0|off|false|no)$/i.test(process.env.CLACK_TERMINAL?.trim() ?? ''),
   /** The name the person's own messages are shown under. */
   userName: process.env.CLACK_USER_NAME?.trim() || accountName(),
+  /** True in the Docker image, where addresses and ports seen from inside are not the ones people use. */
+  container: !!process.env.CLACK_CONTAINER,
   webDist: resolve(here, '../../web/dist'),
   token,
   tokenSource,

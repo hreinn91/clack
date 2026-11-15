@@ -197,9 +197,16 @@ const lanAddresses = Object.values(networkInterfaces())
   .filter((a) => a && a.family === 'IPv4' && !a.internal)
   .map((a) => a!.address);
 
-const lines = ['', 'clack is running', '', `  This computer:  http://localhost:${config.port}`];
-if (config.host === '0.0.0.0') {
-  for (const address of lanAddresses) lines.push(`  Local network:  http://${address}:${config.port}`);
+const lines = ['', 'clack is running', ''];
+if (config.container) {
+  // The container's own addresses mean nothing outside it: what counts is the port the host publishes.
+  lines.push('  In a container. Open the port it is published on (4317 unless changed):');
+  lines.push('  http://localhost:4317 on the host, or the host\'s address from another device.');
+} else {
+  lines.push(`  This computer:  http://localhost:${config.port}`);
+  if (config.host === '0.0.0.0') {
+    for (const address of lanAddresses) lines.push(`  Local network:  http://${address}:${config.port}`);
+  }
 }
 lines.push('', `  Access token:   ${config.token}`);
 lines.push(config.tokenSource === 'env' ? '  (from CLACK_TOKEN)' : `  (saved in ${tokenFile})`);

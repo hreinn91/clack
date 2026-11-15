@@ -1,0 +1,42 @@
+# Start clack with:  docker compose up -d
+# The access token is printed when it starts:  docker compose logs clack
+#
+# Settings come from a .env file beside this one (copy .env.example). All of them are optional.
+
+services:
+  clack:
+    build: .
+    image: clack:local
+    container_name: clack
+    restart: unless-stopped
+
+    ports:
+      # host:container. CLACK_PORT in .env changes the port on the host.
+      # To reach it from this computer only, put 127.0.0.1: in front.
+      - "${CLACK_PORT:-4317}:4317"
+
+    # Everything in .env reaches the container: CLACK_TOKEN, CLACK_USER_NAME, CLACK_TERMINAL,
+    # CLACK_IDLE_MINUTES, a Claude sign-in such as CLAUDE_CODE_OAUTH_TOKEN, and
+    # CLACK_UID / CLACK_GID: the user the app runs as. On a Linux host, set those two
+    # to your own ids (`id -u`, `id -g`) so the files in the data directory are yours.
+    # Docker Desktop and colima on a Mac do not need them.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Inside the container these are fixed, whatever .env says for running without Docker.
+      CLACK_HOST: 0.0.0.0
+      CLACK_PORT: "4317"
+      CLACK_DATA_DIR: /data
+      # Your messages are signed with this unless CLACK_USER_NAME is set.
+      CLACK_HOST_USER: ${USER:-}
+
+    volumes:
+      # The data directory, on the host. CLACK_DATA_PATH in .env points it somewhere else.
+      - ${CLACK_DATA_PATH:-./data}:/data
+      # Claude Code's sign-in and conversations, and clack's access token. Kept by
+      # Docker; `docker compose down` leaves it, `docker compose down -v` deletes it.
+      - clack-home:/home/node
+
+volumes:
+  clack-home:

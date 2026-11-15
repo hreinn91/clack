@@ -43,7 +43,7 @@ npm install
 Sign in to Claude Code once on the server computer, if you have not already:
 
 ```bash
-claude login
+claude auth login
 ```
 
 Build the UI and start the server:
@@ -58,6 +58,87 @@ npm start
 
 The server prints its addresses and an access token. Open the "Local network" address on
 your other device and enter the token once; the browser stays signed in after that.
+
+To run it in a container instead, see [Docker](#docker).
+
+## Docker
+
+With Docker and Docker Compose (2.24 or newer) nothing else needs installing:
+
+```bash
+docker compose up -d
+```
+
+The first run builds the image, which takes a few minutes. Then:
+
+(Homebrew installs Compose as `docker-compose`. If `docker compose` is not found, use
+`docker-compose` in these commands instead, or follow the note Homebrew prints about
+adding its plugin folder to `~/.docker/config.json`.)
+
+1. **Get the access token.** It is printed when the container starts:
+
+   ```bash
+   docker compose logs clack
+   ```
+
+2. **Sign Claude Code in**, once. It asks you to open a link and paste a code back:
+
+   ```bash
+   docker compose exec clack claude auth login
+   ```
+
+   Or, without touching the container, run `claude setup-token` on any computer and put
+   the token it prints in `.env` as `CLAUDE_CODE_OAUTH_TOKEN`, then `docker compose up -d`
+   again.
+
+3. **Open** `http://localhost:4317`, or the host's address from another device.
+
+### What lives where
+
+| In the container | On the host | Holds |
+| --- | --- | --- |
+| `/data` | `./data`, or `CLACK_DATA_PATH` | The data directory: chat folders, logs, remembered settings |
+| `/home/node` | the Docker volume `clack-home` | Claude Code's sign-in and the conversations themselves, and clack's access token |
+
+The data directory is an ordinary folder on the host, so you can look at and edit what
+the chats produce there. The conversations are not in it: Claude Code keeps them in its
+own folder (`~/.claude`), which is why the container's home is a volume too. Both
+survive `docker compose down` and rebuilding the image. `docker compose down -v` deletes
+the `clack-home` volume, and with it the conversations and the sign-in.
+
+Chats started without Docker do not show up in the container, and the other way round:
+Claude Code files conversations under the path of the folder they ran in, and that path
+is different inside the container. The files in the data directory are shared either way.
+
+### Settings
+
+Copy `.env.example` to `.env`. Docker Compose reads it and hands every line to the
+container, so the settings under [Configuration](#configuration) work as usual, with
+these differences:
+
+- `CLACK_PORT` is the port on the host. Inside the container it is always 4317.
+- `CLACK_HOST` and `CLACK_DATA_DIR` are ignored; use `CLACK_DATA_PATH` to keep the data
+  directory somewhere other than `./data`.
+- `CLACK_UID` and `CLACK_GID` set the user the app runs as in the container (1000 by
+  default). On a Linux host, set them to your own ids (`id -u`, `id -g`) so the files in
+  the data directory belong to you. Docker Desktop and colima on a Mac do not need them.
+- Your messages are signed with the name of the account that ran `docker compose`,
+  unless `CLACK_USER_NAME` says otherwise.
+
+After changing `.env`, run `docker compose up -d` again. After updating the code, run
+`docker compose up -d --build`.
+
+### What is in the image
+
+Debian with Node, the app, Claude Code (the copy that comes with the Agent SDK, on the
+`PATH` as `claude`), and a few tools a shell is expected to have: `git`, `curl`,
+`python3`, `ripgrep`, `jq`, `nano`, `less` and an SSH client. Terminals on the
+[data page](#data-page) are shells inside the container, running `bash` as the app's
+user, so they see the container's files and tools, not the host's. To have more tools,
+add them to the `apt-get install` line in the `Dockerfile` and rebuild.
+
+The container starts as root only to make the two mounted places usable by the app's
+user, then drops to that user; clack itself never runs as root.
 
 ## The interface
 
@@ -137,12 +218,10 @@ chosen theme with JetBrains Mono. It is part of the web app: nothing needs to be
 installed on the computer you browse from. A shell is started at the size of the browser
 that opens it. The shell side uses
 [node-pty](https://github.com/microsoft/node-pty), which ships ready-built for macOS and
-Windows. On Linux it is compiled during `npm install`, which needs a C++ toolchain and,
-with newer versions of npm, permission to run its install script:
-
-```bash
-npm install-scripts approve node-pty
-```
+Windows. On Linux it is compiled during `npm install`, which needs a C++ toolchain
+(`build-essential` and `python3` on Debian and Ubuntu). Newer versions of npm only run a
+package's install script when the project allows it; `package.json` allows node-pty's.
+The [Docker image](#docker) takes care of all this.
 
 To remove terminals, set `CLACK_TERMINAL=off` in `.env`. The tree and previews stay.
 See [Security](#security) before using terminals on a network you share.
@@ -318,6 +397,8 @@ npm run check
 | `web/src/App.svelte` | The window: top bar, rail, sidebar and the open page |
 | `web/src/components` | Svelte components; `Chat.svelte` groups the transcript into messages by sender, `Data.svelte` is the data page |
 | `web/src/app.css` | The colour scheme and shared styles |
+| `Dockerfile`, `docker-compose.yml` | The container image and how to run it |
+| `docker/` | The container's start-up script and the `claude` command it offers |
 
 ## Security
 
@@ -355,6 +436,10 @@ If people other than you will use the UI, treat it as giving them a shell on the
 - The shell does not get the server's `CLACK_TOKEN` variable, but it can read the token
   file like any program run as you.
 - Set `CLACK_TERMINAL=off` to remove terminals from the UI and the server.
+- In the [Docker](#docker) setup, terminals and the commands Claude runs are inside the
+  container. They reach the data directory and the container's own files, not the rest
+  of the host's disk. That narrows what a mistake or a stolen sign-in can touch; it is
+  still not a place to run things you do not trust.
 - Attached files can only land in the `uploads/` folder of a chat. Their names are
   reduced to plain file names first, and an existing file is never overwritten.
 
