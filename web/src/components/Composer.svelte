@@ -9,6 +9,7 @@
     { value: 'default', label: 'Ask before changes', description: 'Claude asks before it edits files or runs commands.' },
     { value: 'acceptEdits', label: 'Accept file edits', description: 'File edits go ahead; commands still ask.' },
     { value: 'plan', label: 'Plan only', description: 'Claude looks and plans, and changes nothing.' },
+    { value: 'auto', label: 'Auto', description: 'A safety check approves routine actions; Claude asks about the rest.' },
   ];
 
   const EFFORT_LABELS: Record<EffortLevel, string> = {

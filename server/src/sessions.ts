@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import {
   archiveSession,
   deleteSession,
@@ -13,6 +14,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import type {
   CanUseTool,
+  HookCallback,
   Options,
   PermissionResult,
   PermissionUpdate,
@@ -40,7 +42,7 @@ import { config } from './config.ts';
 import { ensureFolder, folderLabel, insideDir, insideSessions } from './folders.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
-import { relocateTranscript } from './relocate.ts';
+import { projectDirName, relocateTranscript } from './relocate.ts';
 import type { Prefs } from './prefs.ts';
 import { assistantItems, blocksOf, itemsFromHistory, modelOf, readEfforts, toolResultText } from './transcript.ts';
 import { refreshUsageWith } from './usage.ts';
@@ -50,7 +52,7 @@ export type Listener = (msg: ServerMessage) => void;
 /** Emits 'sessions_changed' whenever the session list may look different. */
 export const bus = new EventEmitter();
 
-const MODES: readonly PermissionMode[] = ['default', 'acceptEdits', 'plan'];
+const MODES: readonly PermissionMode[] = ['default', 'acceptEdits', 'plan', 'auto'];
 const EFFORTS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -329,6 +331,7 @@ export class LiveSession {
       includePartialMessages: true,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       canUseTool: this.canUseTool,
+      hooks: { PreToolUse: [{ hooks: [this.autoFence] }] },
       ...(this.model ? { model: this.model } : {}),
       ...(this.effort ? { effort: this.effort } : {}),
       ...(this.onDisk ? { resume: this.sessionId } : { sessionId: this.sessionId }),
@@ -366,11 +369,11 @@ export class LiveSession {
       case 'system':
         if (msg.subtype === 'init') {
           this.activeModel = msg.model;
-          if (isPermissionMode(msg.permissionMode)) this.mode = msg.permissionMode;
+          this.adoptMode(msg.permissionMode);
           this.emitMeta();
         } else if (msg.subtype === 'status') {
           if (isPermissionMode(msg.permissionMode) && msg.permissionMode !== this.mode) {
-            this.mode = msg.permissionMode;
+            this.adoptMode(msg.permissionMode);
             this.emitMeta();
           }
         } else if (msg.subtype === 'compact_boundary') {
@@ -518,6 +521,47 @@ export class LiveSession {
     }
     return undefined;
   }
+
+  /** Takes the mode Claude Code reports, saying so when it would not run in auto mode. */
+  private adoptMode(reported: unknown): void {
+    if (!isPermissionMode(reported)) return;
+    if (this.mode === 'auto' && reported !== 'auto') {
+      this.notice('info', 'Auto mode is not available for this account or model, so Claude will ask before changes instead.');
+    }
+    this.mode = reported;
+  }
+
+  /**
+   * Claude Code's own directory for this chat's folder: memory and saved tool
+   * output live there, and Claude Code reaches them without asking.
+   */
+  private get ownClaudeDir(): string {
+    const root = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+    return join(root, 'projects', projectDirName(this.cwd));
+  }
+
+  /**
+   * In auto mode a classifier approves most calls itself, so they never reach
+   * `canUseTool` and its folder check. This hook applies the same check to
+   * every file path a tool names before the classifier is asked. Shell
+   * commands are not covered: the classifier is what judges those.
+   */
+  private autoFence: HookCallback = async (input) => {
+    if (this.mode !== 'auto' || input.hook_event_name !== 'PreToolUse') return { continue: true };
+    const args = (input.tool_input ?? {}) as Record<string, unknown>;
+    const outside = this.pathOutsideFolder(args, undefined);
+    if (!outside || (!outside.startsWith('~') && insideDir(resolve(this.cwd, outside), this.ownClaudeDir))) {
+      return { continue: true };
+    }
+    this.log('permission', `Refused automatically: ${input.tool_name} wanted ${outside}, outside the chat's folder`, true);
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: `Access to ${outside} was refused: this chat can only work with files inside its own folder (${this.cwd}).`,
+      },
+    };
+  };
 
   private canUseTool: CanUseTool = (toolName, input, opts) =>
     new Promise<PermissionResult>((resolve) => {

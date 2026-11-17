@@ -1,7 +1,7 @@
 // Wire protocol shared by the server and the web UI.
 // Types only: nothing in this file may have a runtime footprint.
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'plan';
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto';
 export type SessionState = 'idle' | 'running';
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 

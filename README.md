@@ -27,7 +27,8 @@ browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  
 - Logs every prompt, response, tool call and permission decision, with a live log page in the UI
 - Shows permission prompts in the UI: allow once, always allow, or deny
 - Answers Claude's multiple-choice questions and plan approvals
-- Stop button, and a switch between "ask before changes", "accept file edits" and "plan only"
+- Stop button, and a switch between "ask before changes", "accept file edits", "plan only"
+  and "auto", where a safety check approves routine actions and only the rest are asked about
 - Reconnects on its own, so a phone that went to sleep picks up where the conversation is now
 - A Data page with the data directory as a folder tree, file previews, and terminals that
   run a shell on the server computer
@@ -411,6 +412,10 @@ Anyone who can sign in can make Claude Code run commands on the server computer 
   refuses on its own and the UI never shows the request. This covers the file tools
   (read, edit, write, search) and shell commands where Claude Code can see the path,
   such as `cat /etc/hosts`.
+- In auto mode Claude Code's safety check approves most actions without asking, so the
+  server checks the file tools itself before that happens and refuses any path outside
+  the chat's folder. Claude Code's own files for that folder (its memory, saved tool
+  output) stay reachable, as they are in the other modes.
 
 ### What it does not cover
 
@@ -420,6 +425,8 @@ It is a guard, not a sandbox. Shell commands still run as your user account:
   up as an ordinary permission request, and whoever is using the UI can approve it.
 - Claude Code loads your own settings from `~/.claude`, so any commands you have already
   allowed there run without asking, and any MCP servers you have set up are available.
+- In auto mode a shell command that names a path outside the folder is judged by Claude
+  Code's safety check rather than refused: if the check finds it routine, it runs.
 
 If people other than you will use the UI, treat it as giving them a shell on the server.
 
