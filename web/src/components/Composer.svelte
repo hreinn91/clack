@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import type { EffortLevel, PermissionMode, Upload } from '../../../shared/protocol';
-  import { fileSize, isImagePath, withAttachments } from '../lib/format';
+  import { fileSize, isImagePath, splitAttachments, withAttachments } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import Picker from './Picker.svelte';
   import UsageMeter from './UsageMeter.svelte';
@@ -101,10 +102,66 @@
     if (app.prompt(message)) {
       text = '';
       attached = [];
+      recalled = null;
     }
   }
 
+  /** What was sent earlier in this chat, oldest first, without attachment lists or repeats in a row. */
+  const sent = $derived.by(() => {
+    const list: string[] = [];
+    for (const item of app.items) {
+      if (item.kind !== 'user') continue;
+      const said = splitAttachments(item.text).text.trim();
+      if (said && said !== list.at(-1)) list.push(said);
+    }
+    return list;
+  });
+
+  /** Which earlier message the box is showing, counted back from the newest; null when it is not showing one. */
+  let recalled = $state<number | null>(null);
+
+  // A new chat has a history of its own.
+  $effect(() => {
+    app.sessionId;
+    recalled = null;
+  });
+
+  /**
+   * Up and down step through earlier messages, as in a shell: only from an
+   * empty box, or while an earlier message is shown untouched. Within a
+   * message of several lines the arrows move the cursor until it reaches the
+   * first or last line.
+   */
+  function recall(event: KeyboardEvent): boolean {
+    if (!area || event.isComposing || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return false;
+    const up = event.key === 'ArrowUp';
+    if (!up && event.key !== 'ArrowDown') return false;
+    const showing = recalled !== null && text === sent[sent.length - 1 - recalled];
+    if (!showing && text !== '') return false;
+    if (showing) {
+      const { selectionStart, selectionEnd } = area;
+      if (selectionStart !== selectionEnd) return false;
+      if (up ? text.lastIndexOf('\n', selectionStart - 1) !== -1 : text.indexOf('\n', selectionStart) !== -1) return false;
+    }
+    const from = showing ? recalled! : -1;
+    const next = up ? from + 1 : from - 1;
+    if (next >= sent.length || (!showing && !up)) return false;
+    event.preventDefault();
+    if (next < 0) {
+      recalled = null;
+      text = '';
+      return true;
+    }
+    recalled = next;
+    text = sent[sent.length - 1 - next]!;
+    // Going back puts the cursor at the start, going forward at the end, so the next press keeps going.
+    const at = up ? 0 : text.length;
+    void tick().then(() => area?.setSelectionRange(at, at));
+    return true;
+  }
+
   function onkeydown(event: KeyboardEvent) {
+    if (recall(event)) return;
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !touch) {
       event.preventDefault();
       send();
@@ -191,7 +248,7 @@
         <span class="sep" aria-hidden="true"></span>
         <Picker
           label="Permission mode"
-          value={app.meta?.mode ?? 'default'}
+          value={app.meta?.mode ?? 'auto'}
           options={MODES}
           disabled={!ready}
           onpick={(value) => app.setMode(value as PermissionMode)}

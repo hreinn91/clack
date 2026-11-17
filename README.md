@@ -27,8 +27,10 @@ browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  
 - Logs every prompt, response, tool call and permission decision, with a live log page in the UI
 - Shows permission prompts in the UI: allow once, always allow, or deny
 - Answers Claude's multiple-choice questions and plan approvals
-- Stop button, and a switch between "ask before changes", "accept file edits", "plan only"
-  and "auto", where a safety check approves routine actions and only the rest are asked about
+- Stop button, and a switch between "auto" (the default for every chat), "ask before changes",
+  "accept file edits" and "plan only". In auto a safety check approves routine actions and
+  only the rest are asked about; where auto is unavailable, chats ask before changes
+- Up and down arrows in an empty message box step through what you sent earlier in the chat
 - Reconnects on its own, so a phone that went to sleep picks up where the conversation is now
 - A Data page with the data directory as a folder tree, file previews, and terminals that
   run a shell on the server computer

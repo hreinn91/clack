@@ -116,7 +116,10 @@ export class LiveSession {
   items: Item[];
   drafts: Draft[] = [];
   state: SessionState = 'idle';
-  mode: PermissionMode = 'default';
+  /** Chats start in auto mode; Claude Code falls back to 'default' where auto is unavailable. */
+  mode: PermissionMode = 'auto';
+  /** Whether the person picked auto mode themselves, rather than starting in it. */
+  private choseAuto = false;
   /** Chosen model and effort; null leaves the choice to Claude Code. */
   model: string | null;
   effort: EffortLevel | null;
@@ -229,6 +232,7 @@ export class LiveSession {
 
   async setMode(mode: PermissionMode): Promise<void> {
     this.mode = mode;
+    this.choseAuto = mode === 'auto';
     if (this.q) await this.q.setPermissionMode(mode);
     this.emitMeta();
   }
@@ -525,9 +529,11 @@ export class LiveSession {
   /** Takes the mode Claude Code reports, saying so when it would not run in auto mode. */
   private adoptMode(reported: unknown): void {
     if (!isPermissionMode(reported)) return;
-    if (this.mode === 'auto' && reported !== 'auto') {
+    // Starting in auto mode and falling back is expected where it is unavailable; only a deliberate choice is worth a word.
+    if (this.mode === 'auto' && reported !== 'auto' && this.choseAuto) {
       this.notice('info', 'Auto mode is not available for this account or model, so Claude will ask before changes instead.');
     }
+    if (reported !== 'auto') this.choseAuto = false;
     this.mode = reported;
   }
 
