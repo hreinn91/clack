@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { mkdir, realpath } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -39,7 +40,7 @@ import type {
   Stamp,
 } from '../../shared/protocol.ts';
 import { config } from './config.ts';
-import { ensureFolder, folderLabel, insideDir, insideSessions } from './folders.ts';
+import { ensureFolder, folderLabel, insideDir, insideSessions, isFolder } from './folders.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
 import { projectDirName, relocateTranscript } from './relocate.ts';
@@ -179,6 +180,7 @@ export class LiveSession {
       activeModel: this.activeModel,
       title: this.title,
       context: this.context,
+      folderMissing: !isFolder(this.cwd),
     };
   }
 
@@ -205,6 +207,9 @@ export class LiveSession {
 
   prompt(text: string): void {
     if (this.state === 'running') throw new Error('Claude is still working. Stop it first or wait for it to finish.');
+    if (!isFolder(this.cwd)) {
+      throw new Error(`This chat's folder, ${folderLabel(this.cwd)}, was deleted. Recreate it or pick another folder to continue.`);
+    }
     const id = randomUUID();
     if (!this.title) {
       // A list of attached files at the end of the message is not what the chat is about.
@@ -308,6 +313,18 @@ export class LiveSession {
     saveMovedFolder(this.sessionId, folderLabel(cwd));
     this.emitMeta();
     this.notice('info', `This chat now works in the folder ${folderLabel(cwd)}.`);
+    bus.emit('sessions_changed');
+  }
+
+  /** Creates this chat's folder again, empty, after it was deleted. */
+  async restoreFolder(): Promise<void> {
+    if (isFolder(this.cwd)) return;
+    if (!insideSessions(this.cwd)) throw new Error('That folder cannot be used.');
+    await mkdir(this.cwd, { recursive: true });
+    // A symlink planted along the way must not become a way out of data/sessions.
+    if ((await realpath(this.cwd)) !== this.cwd) throw new Error('That folder cannot be used.');
+    this.emitMeta();
+    this.notice('info', `The folder ${folderLabel(this.cwd)} was created again. Files that were in it are not back.`);
     bus.emit('sessions_changed');
   }
 
@@ -726,9 +743,13 @@ export async function renameChat(sessionId: string, title: unknown): Promise<voi
 
 /** Makes a chat work in a folder under data/sessions, creating the folder if the name is new. */
 export async function moveChat(sessionId: string, folder: unknown): Promise<void> {
-  if (typeof folder !== 'string' || !folder.trim()) throw new Error('Name the folder to work in.');
   const session = await openSession(sessionId);
-  await session.move(await ensureFolder(folder));
+  await session.move(await ensureFolder(folder, true));
+}
+
+/** Creates a chat's deleted folder again, so the chat can carry on. */
+export async function restoreFolder(sessionId: string): Promise<void> {
+  await (await openSession(sessionId)).restoreFolder();
 }
 
 /** Puts a chat away, or takes it back out. Its conversation and files are untouched either way. */
@@ -759,10 +780,12 @@ export async function listSummaries(): Promise<SessionSummary[]> {
     if (!info.cwd || !insideSessions(info.cwd)) continue;
     seen.add(info.sessionId);
     const open = live.get(info.sessionId);
+    const cwd = open?.cwd ?? currentCwd(info.sessionId, info.cwd);
     summaries.push({
       sessionId: info.sessionId,
       title: info.customTitle || info.summary || info.firstPrompt || 'Untitled',
-      folder: folderLabel(open?.cwd ?? currentCwd(info.sessionId, info.cwd)),
+      folder: folderLabel(cwd),
+      missing: !isFolder(cwd),
       gitBranch: info.gitBranch,
       lastModified: info.lastModified,
       running: open?.state === 'running',
@@ -779,6 +802,7 @@ export async function listSummaries(): Promise<SessionSummary[]> {
       lastModified: session.lastActivity,
       running: session.state === 'running',
       archived: false,
+      missing: !isFolder(session.cwd),
     });
   }
   return summaries.sort((a, b) => b.lastModified - a.lastModified).slice(0, 200);

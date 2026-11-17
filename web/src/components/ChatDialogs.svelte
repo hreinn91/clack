@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { folderPath } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import Modal from './Modal.svelte';
 
@@ -19,16 +20,9 @@
   });
 
   /** What the server will make of a typed folder name. */
-  const slug = $derived(
-    value
-      .normalize('NFKD')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 64),
-  );
+  const slug = $derived(folderPath(value));
   const exists = $derived(app.folders.some((folder) => folder.name === slug));
-  const others = $derived(app.folders.filter((folder) => folder.name !== dialog?.session.folder));
+  const others = $derived(app.pickableFolders.filter((folder) => folder.name !== dialog?.session.folder));
 
   function close() {
     if (!busy) app.dialog = null;

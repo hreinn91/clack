@@ -41,7 +41,7 @@ function parseRoute(): Route {
   if (location.hash === '#/theme') return { name: 'theme' };
   if (location.hash === '#/usage') return { name: 'usage' };
   // A folder picked in the sidebar: the new-chat page opens with it filled in.
-  const folder = location.hash.match(/^#\/new\/([a-z0-9-]{1,64})$/);
+  const folder = location.hash.match(/^#\/new\/([a-z0-9-]{1,64}(?:\/[a-z0-9-]{1,64}){0,7})$/);
   return folder ? { name: 'new', folder: folder[1]! } : { name: 'new' };
 }
 
@@ -172,7 +172,13 @@ class AppState {
     window.addEventListener('online', () => this.#wake());
     // A phone drops the socket while its screen is off: reconnect as soon as it is back.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') this.#wake();
+      if (document.visibilityState !== 'visible') return;
+      this.#wake();
+      // Folders can be deleted or made outside clack (a terminal, the file manager): look again on coming back.
+      if (this.authed) {
+        void this.loadSessions();
+        void this.loadFolders();
+      }
     });
     await this.#checkAuth();
   }
@@ -237,6 +243,35 @@ class AppState {
   async moveChat(id: string, folder: string): Promise<void> {
     await api(`/api/sessions/${id}`, { folder }, 'PATCH');
     await Promise.all([this.loadSessions(), this.loadFolders()]);
+  }
+
+  /** Creates a chat's deleted folder again, empty, so the chat can carry on. */
+  async restoreFolder(id: string): Promise<void> {
+    try {
+      await api(`/api/sessions/${id}`, { restoreFolder: true }, 'PATCH');
+      await Promise.all([this.loadSessions(), this.loadFolders()]);
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
+  /** Creates an empty folder under data/sessions and returns its path from there. Throws, so the form can say what went wrong. */
+  async createFolder(path: string): Promise<string> {
+    const { name } = await api<{ name: string }>('/api/folders', { path });
+    await this.loadFolders();
+    return name;
+  }
+
+  /**
+   * The folders worth offering in a list: the top-level ones and any that
+   * hold chats. Deeper folders inside projects can still be typed or picked
+   * in the sidebar's tree.
+   */
+  get pickableFolders(): FolderInfo[] {
+    const used = new Set(this.sessions.map((chat) => chat.folder));
+    return this.folders
+      .filter((folder) => !folder.name.includes('/') || used.has(folder.name))
+      .sort((a, b) => b.modified - a.modified);
   }
 
   async archiveChat(id: string, archived: boolean): Promise<void> {

@@ -23,12 +23,14 @@
   );
 
   const folder = $derived(app.meta?.folder ?? '');
+  /** The chat's folder was deleted: it can be read, and continued once it has a folder again. */
+  const gone = $derived(app.meta?.folderMissing ?? false);
 
   /** This chat as the sidebar lists it. Missing for a moment while a brand-new chat has nothing in it. */
   const summary = $derived(
     app.sessions.find((s) => s.sessionId === app.sessionId) ??
       (app.sessionId && app.meta
-        ? { sessionId: app.sessionId, title, folder, lastModified: Date.now(), running: app.running, archived: false }
+        ? { sessionId: app.sessionId, title, folder, lastModified: Date.now(), running: app.running, archived: false, missing: app.meta.folderMissing }
         : undefined),
   );
 
@@ -36,10 +38,13 @@
     summary
       ? [
           { label: 'Rename…', run: () => startRename() },
+          ...(gone ? [{ label: 'Recreate folder', run: () => void app.restoreFolder(summary.sessionId) }] : []),
           { label: 'Change folder…', run: () => (app.dialog = { kind: 'move', session: summary }) },
-          summary.archived
-            ? { label: 'Take out of archive', run: () => void app.archiveChat(summary.sessionId, false) }
-            : { label: 'Archive', run: () => void app.archiveChat(summary.sessionId, true) },
+          ...(summary.archived
+            ? [{ label: 'Take out of archive', run: () => void app.archiveChat(summary.sessionId, false) }]
+            : gone
+              ? []
+              : [{ label: 'Archive', run: () => void app.archiveChat(summary.sessionId, true) }]),
           { label: 'Delete…', danger: true, run: () => (app.dialog = { kind: 'delete', session: summary }) },
         ]
       : [],
@@ -182,7 +187,11 @@
         {folder}
       </button>
     {/if}
-    {#if summary?.archived}<span class="archived">Archived</span>{/if}
+    {#if gone}
+      <span class="archived" title="This chat's folder was deleted">Folder deleted</span>
+    {:else if summary?.archived}
+      <span class="archived">Archived</span>
+    {/if}
   </p>
   {#if !app.connected}<span class="offline">Reconnecting…</span>{/if}
   {#if summary}<ActionMenu label="More for this chat" {actions} />{/if}
@@ -249,6 +258,19 @@
     {/if}
   </div>
 </div>
+
+{#if gone && summary}
+  <div class="gone" role="status">
+    <p>
+      The folder <code>{folder}</code> was deleted, so this chat is with the archived ones. You can read it; to carry on,
+      create the folder again (empty) or move the chat to another folder.
+    </p>
+    <div class="gone-actions">
+      <button class="btn primary" onclick={() => void app.restoreFolder(summary.sessionId)}>Recreate folder</button>
+      <button class="btn" onclick={() => (app.dialog = { kind: 'move', session: summary })}>Change folder…</button>
+    </div>
+  </div>
+{/if}
 
 <Composer />
 
@@ -326,6 +348,28 @@
 
   .folder svg {
     flex: none;
+  }
+
+  .gone {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    margin: 0 16px 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--sunken);
+    font-size: 14px;
+  }
+
+  .gone p {
+    flex: 1 1 280px;
+    margin: 0;
+  }
+
+  .gone-actions {
+    display: flex;
+    gap: 8px;
   }
 
   .archived {

@@ -156,3 +156,24 @@ export function tokens(count: number): string {
   if (count < 1_000_000) return `${(count / 1000).toFixed(count < 100_000 ? 1 : 0)}k`;
   return `${+(count / 1_000_000).toFixed(1)}M`;
 }
+
+/**
+ * What the server makes of a typed folder path: each part reduced to lowercase
+ * letters, digits and dashes, joined by slashes ("Work/Client A" → "work/client-a").
+ */
+export function folderPath(typed: string): string {
+  return typed
+    .split(/[\\/]+/)
+    .map((part) =>
+      part
+        .normalize('NFKD')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64)
+        .replace(/-+$/, ''),
+    )
+    .filter(Boolean)
+    .slice(0, 8)
+    .join('/');
+}

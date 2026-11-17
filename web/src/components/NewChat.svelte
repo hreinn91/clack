@@ -1,22 +1,68 @@
 <script lang="ts">
-  import { ago } from '../lib/format';
+  import { ago, folderPath } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import Picker from './Picker.svelte';
 
   let { onmenu }: { onmenu: () => void } = $props();
 
+  // A chat always works in a folder. This page is about choosing it: a new
+  // one, created in the tree, or one that is already there.
+  type Mode = 'create' | 'existing';
+
+  const TOP = '';
+
+  let mode = $state<Mode>('create');
+  /** Where the new folder goes: TOP for data/sessions itself, or a folder path. */
+  let parent = $state(TOP);
   let name = $state('');
   let starting = $state(false);
+  let filter = $state('');
+  let nameField = $state<HTMLInputElement>();
 
-  /** What the server will turn the typed name into, shown so the result is no surprise. */
-  const slug = $derived(
-    name
-      .normalize('NFKD')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 64),
-  );
-  const exists = $derived(app.folders.some((folder) => folder.name === slug));
+  const touch = matchMedia('(pointer: coarse)').matches;
+
+  /** A name for a folder the person did not name, like the server would make up. */
+  function madeUpName(): string {
+    const now = new Date();
+    const two = (n: number) => String(n).padStart(2, '0');
+    return `chat-${now.getFullYear()}${two(now.getMonth() + 1)}${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}`;
+  }
+
+  const known = $derived(new Set(app.folders.map((folder) => folder.name)));
+  const typed = $derived(folderPath(name));
+  /** The folder the chat will work in, from data/sessions. Empty when no name is typed yet. */
+  const target = $derived(typed ? (parent ? `${parent}/${typed}` : typed) : '');
+  const exists = $derived(target !== '' && known.has(target));
+
+  /** The rows of the preview: every folder from data/sessions down to the new one, and which of them will be made. */
+  const preview = $derived.by(() => {
+    const parts = (target || (parent ? `${parent}/${'\u0000'}` : '\u0000')).split('/');
+    return parts.map((part, index) => {
+      const path = parts.slice(0, index + 1).join('/');
+      const placeholder = part === '\u0000';
+      return { name: placeholder ? 'chat-…' : part, depth: index, placeholder, isNew: placeholder || !known.has(path), last: index === parts.length - 1 };
+    });
+  });
+
+  /** Chats that work in each folder, so the existing ones can say how busy they are. */
+  const chatCounts = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const chat of app.sessions) if (!chat.archived && !chat.missing) counts.set(chat.folder, (counts.get(chat.folder) ?? 0) + 1);
+    return counts;
+  });
+
+  const parentOptions = $derived([
+    { value: TOP, label: 'Top level', description: 'Directly in data/sessions' },
+    ...app.pickableFolders
+      .map((folder) => folder.name)
+      .sort((a, b) => a.localeCompare(b))
+      .map((path) => ({ value: path, label: path, description: `Inside data/sessions/${path}` })),
+  ]);
+
+  const existing = $derived.by(() => {
+    const query = filter.trim().toLowerCase();
+    return app.pickableFolders.filter((folder) => !query || folder.name.includes(query));
+  });
 
   async function start(folder: string) {
     starting = true;
@@ -26,18 +72,38 @@
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    void start(name);
+    if (starting) return;
+    // With no name, make one up here: sending only the parent would put the chat in the parent itself.
+    void start(target || (parent ? `${parent}/${madeUpName()}` : madeUpName()));
+  }
+
+  function choose(next: Mode) {
+    mode = next;
+    filter = '';
   }
 
   $effect(() => {
     void app.loadFolders();
   });
 
-  // Arriving from a folder in the sidebar: start with that folder filled in.
+  // Arriving with a folder in the address (#/new/<folder>): offer that folder, ready to start in.
+  let offered = $state<string | undefined>();
   $effect(() => {
-    if (app.route.name === 'new' && app.route.folder) name = app.route.folder;
+    offered = app.route.name === 'new' ? app.route.folder : undefined;
+    if (offered) mode = 'existing';
+  });
+
+  // Ready to type straight away, except on a touch screen where that would throw up the keyboard.
+  $effect(() => {
+    if (mode === 'create' && !touch) nameField?.focus();
   });
 </script>
+
+{#snippet folderIcon()}
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+    <path d="M1.75 4.25c0-.7.55-1.25 1.25-1.25h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25v5.75c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25z" />
+  </svg>
+{/snippet}
 
 <header class="pane-bar">
   <button class="icon-btn menu" aria-label="Open menu" onclick={onmenu}>
@@ -50,53 +116,133 @@
 
 <div class="scroll">
   <div class="panel">
-    <form onsubmit={submit}>
-      <h2>Start in a new folder</h2>
-      <p class="hint">
-        Claude can only work with files inside the folder this chat is given. Leave the name empty and one is made
-        up for you.
+    <div class="intro">
+      <h2>Where should Claude work?</h2>
+      <p>
+        Every chat works in a folder of its own, and Claude can only touch the files inside it. Start with a fresh folder,
+        or carry on in one you already have.
       </p>
-      <div class="field">
-        <input
-          type="text"
-          placeholder="new-chat-session"
-          aria-label="Folder name"
-          autocapitalize="off"
-          autocomplete="off"
-          spellcheck="false"
-          maxlength="80"
-          bind:value={name}
-        />
-        <button class="btn primary" disabled={starting}>Start chat</button>
-      </div>
-      {#if slug}
-        <p class="path">
-          data/sessions/<strong>{slug}</strong>
-          {#if exists}<span class="note">already exists, so the chat joins it</span>{/if}
+    </div>
+
+    <div class="modes" role="radiogroup" aria-label="Folder for this chat">
+      <button role="radio" aria-checked={mode === 'create'} class:on={mode === 'create'} onclick={() => choose('create')}>
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 13H3c-.7 0-1.25-.55-1.25-1.25v-7.5C1.75 3.55 2.3 3 3 3h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25V8" />
+          <path d="M12 10v4.5M9.75 12.25h4.5" />
+        </svg>
+        <span>
+          <strong>New folder</strong>
+          <small>Creates an empty folder in the tree</small>
+        </span>
+      </button>
+      <button role="radio" aria-checked={mode === 'existing'} class:on={mode === 'existing'} onclick={() => choose('existing')}>
+        {@render folderIcon()}
+        <span>
+          <strong>Existing folder</strong>
+          <small>{app.pickableFolders.length ? `${app.pickableFolders.length} to choose from` : 'None yet'}</small>
+        </span>
+      </button>
+    </div>
+
+    {#if mode === 'create'}
+      <form class="card" onsubmit={submit}>
+        <div class="row">
+          <span class="field-label" aria-hidden="true">Create it in</span>
+          <span class="location">
+            <Picker label="Create the folder in" value={parent} options={parentOptions} placement="down" onpick={(value) => (parent = value)} />
+          </span>
+        </div>
+
+        <div class="row">
+          <label for="new-folder-name">Folder name</label>
+          <input
+            id="new-folder-name"
+            type="text"
+            placeholder="my-project"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="80"
+            aria-describedby="new-folder-rules"
+            bind:this={nameField}
+            bind:value={name}
+          />
+          <p class="rules" id="new-folder-rules">
+            Lowercase letters, digits and dashes; anything else turns into a dash. Leave it empty and a name is made up.
+          </p>
+        </div>
+
+        <div class="preview" aria-live="polite">
+          <p class="caption">{exists ? 'This folder is already there' : 'This will be added to your folders'}</p>
+          <ul aria-label="Where the folder goes">
+            <li class="root">{@render folderIcon()} <span>data/sessions</span></li>
+            {#each preview as row, index (index)}
+              <li style:--depth={row.depth + 1} class:new={row.isNew && !exists} class:target={row.last}>
+                <span class="branch" aria-hidden="true">└</span>
+                {@render folderIcon()}
+                <span class="label" class:placeholder={row.placeholder}>{row.name}</span>
+                {#if row.last}
+                  {#if exists}
+                    <span class="badge same">Exists · the chat joins it</span>
+                  {:else if row.placeholder}
+                    <span class="badge">New · name made up</span>
+                  {:else}
+                    <span class="badge">New</span>
+                  {/if}
+                {:else if row.isNew}
+                  <span class="badge soft">New</span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </div>
+
+        <div class="actions">
+          <button class="btn primary" disabled={starting}>
+            {starting ? 'Starting…' : exists ? 'Start chat in this folder' : 'Create folder and start chat'}
+          </button>
+        </div>
+      </form>
+    {:else}
+      <div class="card">
+        {#if app.pickableFolders.length > 6}
+          <input class="filter" type="search" placeholder="Filter folders" aria-label="Filter folders" bind:value={filter} />
+        {/if}
+        {#if existing.length}
+          <ul class="folders" aria-label="Existing folders">
+            {#each existing as folder (folder.name)}
+              {@const cut = folder.name.lastIndexOf('/')}
+              {@const count = chatCounts.get(folder.name) ?? 0}
+              <li>
+                <button class:offered={folder.name === offered} disabled={starting} onclick={() => start(folder.name)}>
+                  {@render folderIcon()}
+                  <span class="name">
+                    {#if cut !== -1}<span class="up">{folder.name.slice(0, cut + 1)}</span>{/if}{folder.name.slice(cut + 1)}
+                  </span>
+                  <span class="meta">
+                    {count ? `${count} chat${count === 1 ? '' : 's'}` : 'No chats'} · {ago(folder.modified)}
+                  </span>
+                  <span class="go" aria-hidden="true">Start chat →</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {:else if app.pickableFolders.length}
+          <p class="empty">No folder matches “{filter}”.</p>
+        {:else}
+          <p class="empty">
+            There are no folders yet.
+            <button class="link" onclick={() => choose('create')}>Create one</button> to start.
+          </p>
+        {/if}
+        <p class="rules">
+          The chat sees whatever is already in the folder. Deeper folders can be picked in the sidebar: hover one and
+          click its speech bubble.
         </p>
-      {/if}
-    </form>
+      </div>
+    {/if}
 
     {#if app.error}<p class="error" role="alert">{app.error}</p>{/if}
-
-    {#if app.folders.length}
-      <section>
-        <h2>Or continue in an existing folder</h2>
-        <ul>
-          {#each app.folders as folder (folder.name)}
-            <li>
-              <button disabled={starting} onclick={() => start(folder.name)}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
-                  <path d="M1.75 4.25c0-.7.55-1.25 1.25-1.25h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25v5.75c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25z" />
-                </svg>
-                <span class="name">{folder.name}</span>
-                <span class="when">{ago(folder.modified)}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
   </div>
 </div>
 
@@ -111,91 +257,271 @@
   .panel {
     max-width: 620px;
     display: grid;
-    gap: 28px;
+    gap: 18px;
   }
 
-  form,
-  section {
+  .intro {
     display: grid;
-    gap: 10px;
+    gap: 6px;
   }
 
   h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 900;
   }
 
-  .hint {
+  .intro p {
     margin: 0;
     color: var(--muted);
   }
 
-  .field {
+  /* The two ways to go, as cards side by side. */
+  .modes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .modes button {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    text-align: left;
+  }
+
+  .modes button:hover {
+    border-color: var(--border-strong);
+  }
+
+  .modes button.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .modes svg {
+    flex: none;
+    color: var(--muted);
+  }
+
+  .modes .on svg {
+    color: var(--accent);
+  }
+
+  .modes span {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .modes small {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .card {
+    display: grid;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .row {
+    display: grid;
+    gap: 6px;
+  }
+
+  label,
+  .field-label {
+    font-size: 14px;
+    font-weight: 700;
   }
 
   input {
-    flex: 1;
     min-width: 0;
     min-height: 42px;
     padding: 8px 12px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--surface);
+    color: var(--text);
     font: 16px var(--mono);
   }
 
-  .field .btn {
-    min-height: 42px;
+  input:focus {
+    border-color: var(--accent);
+    outline: 2px solid var(--accent-soft);
   }
 
-  .path {
+  /* The location picker, dressed as a field. */
+  .location {
+    display: flex;
+  }
+
+  .location :global(.picker) {
+    flex: 1;
+  }
+
+  .location :global(.trigger) {
+    flex: 1;
+    justify-content: space-between;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    font: 15px var(--mono);
+  }
+
+  .rules {
     margin: 0;
     color: var(--muted);
-    font: 13px var(--mono);
-    overflow-wrap: anywhere;
+    font-size: 13px;
   }
 
-  .path strong {
+  /* The folder tree as it will be, with what is new picked out. */
+  .preview {
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--sunken);
+  }
+
+  .caption {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .preview ul {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font: 14px var(--mono);
+  }
+
+  .preview li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    min-height: 26px;
+    padding-left: calc((var(--depth, 0) - 1) * 18px);
+    color: var(--muted);
+  }
+
+  .preview li.root {
+    padding-left: 0;
+  }
+
+  .preview li svg {
+    flex: none;
+  }
+
+  .branch {
+    width: 12px;
+    opacity: 0.6;
+  }
+
+  .preview .label {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .preview li.target {
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .preview li.new svg {
+    color: var(--accent);
+  }
+
+  .placeholder {
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  .badge {
+    flex: none;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font: 700 11.5px var(--font);
+  }
+
+  .badge.soft {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .badge.same {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     color: var(--text);
   }
 
-  .note {
-    margin-left: 8px;
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .actions .btn {
+    min-height: 42px;
+    padding-inline: 18px;
+  }
+
+  .filter {
     font-family: var(--font);
   }
 
-  ul {
+  .folders {
+    display: grid;
+    gap: 2px;
     margin: 0;
-    padding: 4px;
+    padding: 0;
     list-style: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
   }
 
-  li button {
+  .folders button {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
     width: 100%;
-    min-height: 40px;
+    min-height: 44px;
     padding: 6px 10px;
     border: 0;
     border-radius: 7px;
     background: none;
+    color: var(--text);
     text-align: left;
   }
 
-  li button:hover:not(:disabled) {
+  .folders button:hover:not(:disabled),
+  .folders button:focus-visible,
+  .folders button.offered {
     background: var(--sunken);
   }
 
-  li svg {
-    color: var(--muted);
+  .folders svg {
     flex: none;
+    color: var(--muted);
   }
 
   .name {
@@ -204,13 +530,45 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-family: var(--mono);
-    font-size: 13.5px;
+    font: 600 14px var(--mono);
   }
 
-  .when {
+  .up {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .meta {
+    flex: none;
     color: var(--muted);
     font-size: 12.5px;
+  }
+
+  .go {
+    flex: none;
+    visibility: hidden;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .folders button:hover .go,
+  .folders button:focus-visible .go,
+  .folders button.offered .go {
+    visibility: visible;
+  }
+
+  .empty {
+    margin: 0;
+  }
+
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--link);
+    font: inherit;
+    text-decoration: underline;
   }
 
   .error {
@@ -218,9 +576,17 @@
     color: var(--danger);
   }
 
-  @media (max-width: 480px) {
-    .field {
-      flex-direction: column;
+  @media (max-width: 520px) {
+    .modes {
+      grid-template-columns: 1fr;
+    }
+
+    .actions .btn {
+      flex: 1;
+    }
+
+    .go {
+      display: none;
     }
   }
 </style>

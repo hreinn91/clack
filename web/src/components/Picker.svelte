@@ -71,7 +71,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span class="picker" class:down={placement === 'down'} class:right={align === 'right'} bind:this={root} {onkeydown}>
-  <button class="trigger" class:open aria-haspopup="listbox" aria-expanded={open} aria-label={`${label}: ${current?.label ?? value}`} title={label} {disabled} onclick={toggle}>
+  <button type="button" class="trigger" class:open aria-haspopup="listbox" aria-expanded={open} aria-label={`${label}: ${current?.label ?? value}`} title={label} {disabled} onclick={toggle}>
     <span>{current?.label ?? value}</span>
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M2 3.5 5 6.5l3-3" />
@@ -80,7 +80,7 @@
   {#if open}
     <div class="menu" role="listbox" aria-label={label} bind:this={menu}>
       {#each options as option (option.value)}
-        <button role="option" aria-selected={option.value === value} onclick={() => pick(option.value)}>
+        <button type="button" role="option" aria-selected={option.value === value} onclick={() => pick(option.value)}>
           <svg class="check" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             {#if option.value === value}<path d="M3 7.5 6 10.5l5-6.5" />{/if}
           </svg>

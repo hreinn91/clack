@@ -29,7 +29,8 @@
 
   // On a touch keyboard Enter should add a line; sending is the button's job.
   const touch = matchMedia('(pointer: coarse)').matches;
-  const ready = $derived(app.connected && app.meta !== null);
+  // A chat whose folder was deleted cannot go on until it has one again; the chat says how.
+  const ready = $derived(app.connected && app.meta !== null && !app.meta.folderMissing);
 
   const modelValue = $derived(app.meta?.model ?? DEFAULT_MODEL);
   /** Effort levels the chosen model accepts; empty when it has none to choose from. */

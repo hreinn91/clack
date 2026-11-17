@@ -70,6 +70,8 @@ export type SessionMeta = {
   title?: string;
   /** How full the model's context window is, as of the last finished turn. Unknown until a turn has run. */
   context?: ContextUsage;
+  /** The chat's folder was deleted: it can be read, but not continued until the folder is back. */
+  folderMissing: boolean;
 };
 
 /** Tokens in the conversation against the most the model can hold; `percent` is 0 to 100. */
@@ -169,8 +171,11 @@ export type SessionSummary = {
   running: boolean;
   /** Put away: kept, but out of the main list until it is taken back out or written in again. */
   archived: boolean;
+  /** The folder it works in no longer exists. Shown with the archived chats until the folder is back. */
+  missing: boolean;
 };
 
+/** A folder under data/sessions; `name` is its path from there, with forward slashes ("work/client-a"). */
 export type FolderInfo = { name: string; modified: number };
 
 /** One file or folder under the data directory. */

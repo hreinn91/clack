@@ -18,10 +18,10 @@ import { isAuthed, login, logout, sameOrigin } from './auth.ts';
 import { config, tokenFile } from './config.ts';
 import { FileError, listDir, openImage, previewFile } from './files.ts';
 import { MAX_UPLOAD_BYTES, saveUpload } from './uploads.ts';
-import { ensureFolder, listFolders } from './folders.ts';
+import { ensureFolder, folderLabel, listFolders } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
 import { listModels } from './models.ts';
-import { createSession, deleteChat, listSummaries, moveChat, openSession, renameChat, setArchived, shutdownAll } from './sessions.ts';
+import { bus, createSession, deleteChat, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
 import { planUsage } from './usage.ts';
 import { registerWs } from './ws.ts';
@@ -62,8 +62,8 @@ app.post('/api/logout', async (_req, reply) => {
 
 app.get('/api/sessions', async () => listSummaries());
 
-// A chat always runs in a folder directly under data/sessions. The name is
-// reduced to a plain folder name first, so it cannot reach anywhere else.
+// A chat always runs in a folder under data/sessions, at any depth. The name is
+// reduced to plain folder names first, so it cannot reach anywhere else.
 app.post('/api/sessions', async (req, reply) => {
   const name = (req.body as { folder?: unknown } | null)?.folder;
   try {
@@ -76,9 +76,10 @@ app.post('/api/sessions', async (req, reply) => {
 // Changes to an existing chat: its name, whether it is put away, and the folder it works in.
 app.patch('/api/sessions/:id', async (req, reply) => {
   const id = (req.params as { id: string }).id;
-  const body = (req.body ?? {}) as { title?: unknown; archived?: unknown; folder?: unknown };
+  const body = (req.body ?? {}) as { title?: unknown; archived?: unknown; folder?: unknown; restoreFolder?: unknown };
   try {
     if (body.title !== undefined) await renameChat(id, body.title);
+    if (body.restoreFolder === true) await restoreFolder(id);
     if (body.folder !== undefined) await moveChat(id, body.folder);
     if (typeof body.archived === 'boolean') await setArchived(id, body.archived);
     return { ok: true };
@@ -97,6 +98,17 @@ app.delete('/api/sessions/:id', async (req, reply) => {
 });
 
 app.get('/api/folders', async (): Promise<FolderInfo[]> => listFolders());
+
+// A new, empty folder for chats, at any depth under data/sessions ("work/client-a").
+app.post('/api/folders', async (req, reply) => {
+  try {
+    const path = await ensureFolder((req.body as { path?: unknown } | null)?.path, true);
+    bus.emit('sessions_changed');
+    return { name: folderLabel(path) };
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'Could not create that folder.' });
+  }
+});
 
 // The most recent activity. The complete record is in the files under `dir`.
 app.get('/api/logs', async (req): Promise<LogPage> => {

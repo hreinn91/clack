@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { folderPath } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import Modal from './Modal.svelte';
 
@@ -21,14 +22,7 @@
     location.hash = hash;
   }
 
-  const slug = $derived(
-    query
-      .normalize('NFKD')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 64),
-  );
+  const slug = $derived(folderPath(query));
 
   const entries = $derived.by(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -50,7 +44,7 @@
     }
 
     if (words.length) {
-      for (const folder of app.folders) {
+      for (const folder of app.pickableFolders) {
         if (!matches(folder.name) || folder.name === slug) continue;
         out.push({ id: `folder:${folder.name}`, kind: 'new', label: `New chat in ${folder.name}`, hint: 'Existing folder', run: () => void app.newSession(folder.name) });
       }

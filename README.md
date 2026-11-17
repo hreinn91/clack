@@ -18,7 +18,8 @@ browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  
 
 - Chat with streaming replies, laid out like a team chat app: chats in a sidebar, and every
   message under the name of who sent it
-- Each chat works in its own folder under `data/sessions`, which you name when you start it
+- Each chat works in its own folder under `data/sessions`, which you name when you start it.
+  Folders can be nested, and the sidebar shows them as a tree
 - Lists the chats started through clack and resumes them
 - Pick the model and effort level per chat
 - Attach pictures and documents to a message for Claude to look at
@@ -154,9 +155,9 @@ The window has four parts:
   the [activity log](#activity-log), **Data** opens the [data page](#data-page),
   **Theme** opens the [themes](#themes), **+** starts a chat, and your picture at the bottom shows whether the browser is connected
   and holds **Sign out**.
-- **Sidebar:** **Chats** lists the conversations under the folder each works in, the
-  folder with the most recent chat first. The dot before a chat is lit and pulsing
-  while Claude is working in it. See [Managing chats](#managing-chats).
+- **Sidebar:** **Chats** shows the folders under `data/sessions` as a tree, with each
+  folder's chats listed under it. The dot before a chat is lit and pulsing while Claude
+  is working in it. See [Managing chats](#managing-chats).
 - **Conversation:** messages are stacked on the left, each with a picture, a name and
   the time. Yours carry your name. Claude's carry the model and the effort it ran at,
   such as **Fable 5.2 High**, so a chat that switched model or effort part-way shows
@@ -237,15 +238,27 @@ On first start the server creates a `data` directory next to the code. It is not
 data/
   sessions/
     new-chat-session/     one folder per project; Claude Code runs with this as its working directory
-    another-project/
+    work/
+      client-a/           folders can be nested; a chat can work in any of them
   logs/
     clack-2026-11-14.jsonl  the activity log, one file per day
   preferences.json        the model and effort chosen for each chat
 ```
 
-Starting a chat asks for a folder name. The name is reduced to lowercase letters, digits
-and dashes, and the folder is created under `data/sessions` if it does not exist. Leaving
-the name empty generates one. There is no way to start or resume a chat anywhere else from
+The **New chat** page asks where the chat should work, with two choices:
+
+- **New folder** (the default): pick where it goes (the top level, or inside one of your
+  folders) and type a name. A preview shows the folder tree with the new folder marked
+  **New**, and the button says **Create folder and start chat**. The name is reduced to
+  lowercase letters, digits and dashes; a name with slashes, such as `work/client-a`,
+  makes nested folders (up to eight deep). Leaving the name empty makes one up, such as
+  `chat-20261117-203112`. If the folder is already there, the preview says so and the
+  chat joins it.
+- **Existing folder:** a list of your top-level folders and the folders that already
+  have chats, with how many chats each has. Click one to start. Deeper folders can be
+  picked in the sidebar.
+
+There is no way to start or resume a chat anywhere else from
 the UI, and Claude Code sessions from elsewhere on the computer are not listed.
 
 See [Security](#security) for what this limit does and does not guarantee.
@@ -279,8 +292,21 @@ then shows what it can still read.
 
 ## Managing chats
 
-The sidebar lists chats under the folder each one works in. Click a folder's name to
-fold it; the **+** beside it starts another chat there.
+The sidebar shows every folder under `data/sessions` as a tree, at any depth. Hidden
+folders (such as `.git`) and `node_modules` are left out, and so are files: those are on
+the [data page](#data-page).
+
+- A folder that chats work in has a filled green icon and the number of its chats. A
+  folder with no chats anywhere inside it is dimmed. A folded folder with chats further
+  down shows how many.
+- Folders with chats come first, the most recently used at the top; the rest follow by
+  name. Folders with chats start unfolded, the rest folded. Click a folder's name to fold
+  or unfold it; the browser remembers it.
+- **New chat in a folder:** hover the folder (on a touch screen the buttons are always
+  there) and click the speech-bubble button. The chat starts there straight away.
+- **New folder:** the folder button beside **Chats** makes one at the top level, and the
+  same button on a folder's row makes one inside it. Type the name and press Enter, or
+  Escape to cancel.
 
 - **Rename:** click the title at the top of a chat, or use **Rename…** in a chat's
   **⋯** menu (in the sidebar row, or at the top right of the chat).
@@ -289,8 +315,13 @@ fold it; the **+** beside it starts another chat there.
   `data/sessions`. Claude works there from the next message and keeps the conversation
   so far. No files are moved: what the chat made or was given earlier stays in the old
   folder, and pictures attached before the move are shown by name only.
-- **Archive:** puts a chat in the **Archived** section at the bottom of the sidebar.
-  Take it out again from its menu; sending a message in it does the same.
+- **Archive:** puts a chat in the **Archived** section, folded shut at the bottom of the
+  sidebar. Take it out again from its menu; sending a message in it does the same.
+- **Deleted folders:** a chat whose folder no longer exists counts as archived. It is
+  listed in **Archived**, marked **deleted**, and can still be read. To carry on with it,
+  use **Recreate folder** (an empty folder with the old name) or **Change folder…**,
+  from its menu or from the bar above the message box. Either one puts it back in the
+  tree.
 - **Delete:** removes the conversation for good, after asking. The files in its folder
   stay.
 
