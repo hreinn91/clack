@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import type { ContextDetail } from '../../../shared/protocol';
   import { ago, tokens } from '../lib/format';
+  import { placeBelow } from '../lib/popover';
   import { app } from '../lib/state.svelte';
   import UsageRing from './UsageRing.svelte';
 
@@ -65,14 +66,8 @@
     }
   }
 
-  /** The card hangs under the chip, kept on screen; on a phone it takes the width of the screen. */
   function position() {
-    if (!chip) return;
-    const rect = chip.getBoundingClientRect();
-    const margin = 12;
-    const width = Math.min(400, window.innerWidth - margin * 2);
-    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
-    place = { top: rect.bottom + 6, left, width };
+    if (chip) place = placeBelow(chip);
   }
 
   async function toggle() {

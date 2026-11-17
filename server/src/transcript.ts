@@ -95,6 +95,14 @@ export async function readEfforts(sessionId: string): Promise<Map<string, Effort
   return efforts;
 }
 
+/** The note a chat shows when an agent working in the background is done. */
+export function agentReport(agentType: string | undefined, status: 'completed' | 'failed' | 'stopped'): string {
+  const who = agentType ? `A background agent (${agentType})` : 'A background agent';
+  if (status === 'failed') return `${who} failed.`;
+  if (status === 'stopped') return `${who} was stopped.`;
+  return `${who} finished and reported back to Claude.`;
+}
+
 /** Rebuilds a transcript from the messages Claude Code saved on disk. */
 export function itemsFromHistory(messages: SessionMessage[], efforts: Map<string, EffortLevel> = new Map()): Item[] {
   const items: Item[] = [];
@@ -115,12 +123,20 @@ export function itemsFromHistory(messages: SessionMessage[], efforts: Map<string
         items.push(item);
       }
     } else if (msg.type === 'user') {
+      // Messages Claude Code adds itself (an agent's report, a finished task, reminders) are saved as
+      // the user's, marked like this; they are not something the person wrote.
+      const saved = msg as { isMeta?: unknown; origin?: { kind?: unknown; name?: unknown }; promptSource?: unknown };
+      const injected = saved.isMeta === true || saved.origin !== undefined || saved.promptSource === 'system';
+      if (saved.origin?.kind === 'peer') {
+        const name = typeof saved.origin.name === 'string' ? saved.origin.name : undefined;
+        items.push({ kind: 'notice', id: msg.uuid, level: 'info', text: agentReport(name, 'completed'), ...when });
+      }
       const typed: string[] = [];
       for (const block of blocksOf(content)) {
         if (block.type === 'tool_result') {
           const tool = tools.get(String(block.tool_use_id));
           if (tool) tool.result = { text: toolResultText(block.content), isError: block.is_error === true };
-        } else if (block.type === 'text' && typeof block.text === 'string' && !msg.parent_tool_use_id) {
+        } else if (block.type === 'text' && typeof block.text === 'string' && !msg.parent_tool_use_id && !injected) {
           const text = cleanUserText(block.text);
           if (text) typed.push(text);
         }

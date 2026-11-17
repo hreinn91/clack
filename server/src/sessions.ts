@@ -41,13 +41,14 @@ import type {
   Stamp,
 } from '../../shared/protocol.ts';
 import { rememberTools } from './capabilities.ts';
+import { TaskBoard } from './tasks.ts';
 import { config } from './config.ts';
 import { ensureFolder, folderLabel, gitBranch, insideDir, insideSessions, isFolder } from './folders.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
 import { projectDirName, relocateTranscript } from './relocate.ts';
 import type { Prefs } from './prefs.ts';
-import { assistantItems, blocksOf, itemsFromHistory, modelOf, readEfforts, toolResultText } from './transcript.ts';
+import { agentReport, assistantItems, blocksOf, itemsFromHistory, modelOf, readEfforts, toolResultText } from './transcript.ts';
 import { refreshUsageWith } from './usage.ts';
 
 export type Listener = (msg: ServerMessage) => void;
@@ -133,6 +134,8 @@ export class LiveSession {
   context: ContextUsage | undefined;
   lastActivity = Date.now();
 
+  /** Background work of the running process, for the list under the chat's title. */
+  private tasks = new TaskBoard();
   /** False until Claude Code has written this session's transcript, after which it must be resumed rather than created. */
   private onDisk: boolean;
   private q: Query | undefined;
@@ -170,6 +173,11 @@ export class LiveSession {
     return this.pending.size > 0;
   }
 
+  /** Background work is still going, which ends if the process is shut down. */
+  get hasBackgroundWork(): boolean {
+    return this.tasks.running > 0;
+  }
+
   meta(): SessionMeta {
     return {
       sessionId: this.sessionId,
@@ -184,6 +192,7 @@ export class LiveSession {
       context: this.context,
       folderMissing: !isFolder(this.cwd),
       gitBranch: gitBranch(this.cwd),
+      tasks: this.tasks.list(),
     };
   }
 
@@ -319,6 +328,13 @@ export class LiveSession {
     bus.emit('sessions_changed');
   }
 
+  /** Stops one piece of background work. Claude Code then reports it as stopped. */
+  async stopTask(taskId: string): Promise<void> {
+    if (!this.q) throw new Error('Nothing is running in this chat.');
+    this.log('notice', `Stopping background task ${taskId}`);
+    await this.q.stopTask(taskId);
+  }
+
   /** Creates this chat's folder again, empty, after it was deleted. */
   async restoreFolder(): Promise<void> {
     if (isFolder(this.cwd)) return;
@@ -382,13 +398,21 @@ export class LiveSession {
       }
       this.clearDrafts();
       this.interrupting = false;
+      this.tasks.endAll();
       this.setState('idle');
+      this.emitMeta();
       bus.emit('sessions_changed');
     }
   }
 
   private handle(msg: SDKMessage): void {
     this.lastActivity = Date.now();
+    if (this.tasks.handle(msg)) this.emitMeta();
+    // A background agent being done is said in the conversation too, as it is when the chat is loaded again later.
+    if (msg.type === 'system' && msg.subtype === 'task_notification') {
+      const agent = this.tasks.agent(msg.task_id);
+      if (agent) this.notice('info', agentReport(agent.agentType, msg.status));
+    }
     switch (msg.type) {
       case 'system':
         if (msg.subtype === 'init') {
@@ -412,8 +436,10 @@ export class LiveSession {
 
       case 'assistant': {
         this.onDisk = true;
-        this.setState('running');
         const parent = msg.parent_tool_use_id;
+        // An agent working in the background keeps talking after the turn has ended; only the main
+        // conversation means Claude is working on the chat.
+        if (!parent) this.setState('running');
         if (!parent) {
           // Each reply names the model that wrote it, which keeps the header right after a switch.
           const model = modelOf(msg.message);
@@ -817,6 +843,12 @@ export async function contextDetail(sessionId: string): Promise<ContextDetail> {
   return (await openSession(sessionId)).contextDetail();
 }
 
+/** Stops one piece of background work in a chat. */
+export async function stopTask(sessionId: string, taskId: unknown): Promise<void> {
+  if (typeof taskId !== 'string' || !taskId) throw new Error('Which task?');
+  await (await openSession(sessionId)).stopTask(taskId);
+}
+
 /** Creates a chat's deleted folder again, so the chat can carry on. */
 export async function restoreFolder(sessionId: string): Promise<void> {
   await (await openSession(sessionId)).restoreFolder();
@@ -882,7 +914,8 @@ export async function listSummaries(): Promise<SessionSummary[]> {
 function reap(): void {
   const now = Date.now();
   for (const session of live.values()) {
-    if (session.state === 'running' || session.hasPending) continue;
+    // Shutting the process down would end its background work too.
+    if (session.state === 'running' || session.hasPending || session.hasBackgroundWork) continue;
     if (now - session.lastActivity < config.idleMs) continue;
     if (session.hasProcess) session.shutdown();
     if (!session.hasListeners) live.delete(session.sessionId);

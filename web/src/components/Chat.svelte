@@ -4,6 +4,7 @@
   import { app } from '../lib/state.svelte';
   import ActionMenu from './ActionMenu.svelte';
   import ContextPanel from './ContextPanel.svelte';
+  import TasksPanel from './TasksPanel.svelte';
   import Avatar from './Avatar.svelte';
   import Composer from './Composer.svelte';
   import Entry from './Entry.svelte';
@@ -175,7 +176,7 @@
     <h1><button class="title" title="Rename this chat" onclick={startRename}>{title}</button></h1>
   {/if}
   <p class="where">
-    {#if summary && !gone}<ContextPanel />{/if}
+    {#if summary && !gone}<ContextPanel /><TasksPanel />{/if}
     {#if gone}
       <span class="archived" title="This chat's folder was deleted">Folder deleted</span>
     {:else if summary?.archived}

@@ -74,6 +74,28 @@ export type SessionMeta = {
   folderMissing: boolean;
   /** The git branch the folder is on, when it is in a git repository under data/sessions. */
   gitBranch?: string;
+  /** Work Claude Code is doing in the background in this chat, then what finished there lately. */
+  tasks: BackgroundTask[];
+};
+
+/** A shell command, agent or watcher Claude Code runs in the background of a chat. */
+export type BackgroundTask = {
+  id: string;
+  kind: 'agent' | 'shell' | 'monitor' | 'workflow' | 'other';
+  description: string;
+  /** For an agent: which kind ("general-purpose", "Explore", a custom agent's name). */
+  agentType?: string;
+  status: 'running' | 'completed' | 'failed' | 'stopped';
+  /** When this server saw it start, and end; milliseconds since epoch. */
+  startedAt: number;
+  endedAt?: number;
+  toolUses?: number;
+  tokens?: number;
+  /** The tool an agent used last, while it runs. */
+  lastTool?: string;
+  /** A line about where it stands, or how it ended. */
+  summary?: string;
+  error?: string;
 };
 
 /** Tokens in the conversation against the most the model can hold; `percent` is 0 to 100. */

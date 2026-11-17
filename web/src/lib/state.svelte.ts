@@ -277,6 +277,11 @@ class AppState {
     return api<Capabilities>(`/api/capabilities${query ? `?${query}` : ''}`);
   }
 
+  /** Stops one of a chat's background tasks. Throws, so the list can say what went wrong. */
+  async stopTask(sessionId: string, taskId: string): Promise<void> {
+    await api(`/api/sessions/${sessionId}/tasks/${encodeURIComponent(taskId)}/stop`, {});
+  }
+
   /** What fills a chat's context window. Throws, so the panel can say what went wrong. */
   async loadContext(id: string): Promise<ContextDetail> {
     return api<ContextDetail>(`/api/sessions/${id}/context`);

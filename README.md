@@ -353,6 +353,16 @@ needed are mentioned but not counted. Each opening measures again; the round arr
 too. If the chat has no Claude Code process at that moment, one is started to count,
 which takes a few seconds, and it stops again after the usual idle time.
 
+**Background** beside it lists what Claude left running in that chat while it carries
+on: shell commands started in the background and agents it handed work to, as in Claude
+Code's own background tasks. While something runs, the chip shows how many, with a
+pulsing dot. Each entry says what it is, how long it has been going, how many tools an
+agent has used and which one last, and has a **Stop** button. Finished ones stay
+listed below, with whether they were done, failed or stopped, and how long they took.
+A chat with background work still going is not shut down when it sits idle, since that
+would end the work. When a background agent is done, the chat says so in a short note,
+and Claude usually replies to what it found.
+
 The figures are read again after every turn in any chat, when Claude Code reports that
 a limit has moved, and with **Refresh** on the page. They come from a part of the Agent
 SDK that is marked experimental, so a future version may change or remove it; clack
@@ -520,6 +530,7 @@ npm run check
 | `server/src/terminal.ts` | Runs the shells behind the data page's terminals |
 | `server/src/uploads.ts` | Saves files attached to a message into the chat's folder |
 | `server/src/capabilities.ts` | Asks Claude Code which MCP servers, skills, agents and tools it has, for the Tools page |
+| `server/src/tasks.ts` | Keeps track of each chat's background tasks and agents from Claude Code's task events |
 | `server/src/usage.ts` | Reads how much of the Claude plan's limits is used |
 | `server/src/relocate.ts` | Moves a conversation within Claude Code's storage when a chat changes folder |
 | `web/src/lib/theme.svelte.ts` | The themes, and how the app's colours are worked out from one |
