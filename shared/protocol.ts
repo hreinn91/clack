@@ -76,6 +76,45 @@ export type SessionMeta = {
   gitBranch?: string;
   /** Work Claude Code is doing in the background in this chat, then what finished there lately. */
   tasks: BackgroundTask[];
+  /** Uncommitted changes in the folder's git repository, counted; missing when it is not in one. */
+  gitChanges?: GitSummary;
+};
+
+/** How much is changed and not committed in a chat's git repository. */
+export type GitSummary = {
+  /** Files with any change: staged, not staged, untracked or in conflict. */
+  files: number;
+  untracked: number;
+  /** Lines added and removed over all of them (untracked files count as all added). */
+  added: number;
+  deleted: number;
+  checkedAt: number;
+};
+
+/** One changed file. A file changed both in the index and after it shows up twice, once per area. */
+export type GitChange = {
+  /** From the repository's top folder, with forward slashes. */
+  path: string;
+  /** For a rename or copy: where it came from. */
+  from?: string;
+  area: 'staged' | 'unstaged' | 'untracked' | 'conflict';
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'type changed' | 'untracked' | 'conflict';
+  added?: number;
+  deleted?: number;
+  binary?: boolean;
+};
+
+/** The full picture behind GitSummary, for the list under the chat's title. */
+export type GitStatus = GitSummary & {
+  /** The repository's top folder, from data/sessions. */
+  root: string;
+  branch?: string;
+  upstream?: string;
+  ahead?: number;
+  behind?: number;
+  changes: GitChange[];
+  /** More files changed than are listed. */
+  truncated: boolean;
 };
 
 /** A shell command, agent or watcher Claude Code runs in the background of a chat. */

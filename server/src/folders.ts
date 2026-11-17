@@ -44,36 +44,39 @@ export function slugPath(path: string): string {
 }
 
 /**
- * The git branch a chat's folder is on, when the folder is in a git
- * repository that is itself under data/sessions; for a detached checkout, the
- * start of the commit's hash. The search stops at data/sessions, so a
- * repository the data directory happens to sit in is never reported.
+ * The git repository a chat's folder is in, when that repository is itself
+ * under data/sessions: its top folder and its git directory. The search stops
+ * at data/sessions, so a repository the data directory happens to sit in is
+ * never used.
  */
-export function gitBranch(cwd: string): string | undefined {
+export function gitRepo(cwd: string): { root: string; gitDir: string } | undefined {
   for (let dir = cwd; insideSessions(dir); dir = dirname(dir)) {
     const dotGit = join(dir, '.git');
-    let gitDir: string;
     try {
       // A worktree or submodule has a file pointing at the real git directory.
       if (statSync(dotGit).isFile()) {
         const pointer = readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/m);
-        if (!pointer) return undefined;
-        gitDir = resolve(dir, pointer[1]!.trim());
-      } else {
-        gitDir = dotGit;
+        return pointer ? { root: dir, gitDir: resolve(dir, pointer[1]!.trim()) } : undefined;
       }
+      return { root: dir, gitDir: dotGit };
     } catch {
-      continue; // no .git here: look one folder up
-    }
-    try {
-      const head = readFileSync(join(gitDir, 'HEAD'), 'utf8').trim();
-      const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/);
-      return ref ? ref[1] : /^[0-9a-f]{7,}$/.test(head) ? head.slice(0, 7) : undefined;
-    } catch {
-      return undefined;
+      // no .git here: look one folder up
     }
   }
   return undefined;
+}
+
+/** The branch a chat's folder is on (see gitRepo); for a detached checkout, the start of the commit's hash. */
+export function gitBranch(cwd: string): string | undefined {
+  const repo = gitRepo(cwd);
+  if (!repo) return undefined;
+  try {
+    const head = readFileSync(join(repo.gitDir, 'HEAD'), 'utf8').trim();
+    const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/);
+    return ref ? ref[1] : /^[0-9a-f]{7,}$/.test(head) ? head.slice(0, 7) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** True when a path is an existing directory. */

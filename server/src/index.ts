@@ -24,7 +24,7 @@ import { capabilities } from './capabilities.ts';
 import { ensureFolder, folderLabel, listFolders } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
 import { listModels } from './models.ts';
-import { bus, contextDetail, createSession, deleteChat, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
+import { bus, contextDetail, createSession, deleteChat, gitDetail, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
 import { planUsage } from './usage.ts';
 import { registerWs } from './ws.ts';
@@ -97,6 +97,15 @@ app.get('/api/sessions/:id/context', async (req, reply): Promise<ContextDetail |
     return await contextDetail((req.params as { id: string }).id);
   } catch (err) {
     return reply.code(400).send({ error: err instanceof Error ? err.message : 'The context could not be measured.' });
+  }
+});
+
+// What is changed and not committed in a chat's git repository, file by file.
+app.get('/api/sessions/:id/git', async (req, reply) => {
+  try {
+    return { status: await gitDetail((req.params as { id: string }).id) };
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'git could not be asked.' });
   }
 });
 

@@ -14,12 +14,14 @@
     return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : folder;
   });
   const branch = $derived(meta?.gitBranch);
+  /** Uncommitted changes, marked on the branch with a star as prompts do. */
+  const dirty = $derived((meta?.gitChanges?.files ?? 0) > 0);
   const gone = $derived(meta?.folderMissing ?? false);
 
   const title = $derived(
     app.running
       ? `Works in data/sessions/${folder}. The folder can be changed once Claude has finished.`
-      : `Works in data/sessions/${folder}${branch ? `, on git branch ${branch}` : ''}${gone ? ' (deleted)' : ''}. Click to change the folder.`,
+      : `Works in data/sessions/${folder}${branch ? `, on git branch ${branch}${dirty ? ', with uncommitted changes' : ''}` : ''}${gone ? ' (deleted)' : ''}. Click to change the folder.`,
   );
 </script>
 
@@ -42,7 +44,7 @@
           <circle cx="11.5" cy="5.5" r="1.75" />
           <path d="M4.5 5.25v5.5M11.5 7.25c0 2.5-2.5 2.75-5.6 4.1" />
         </svg>
-        {branch}
+        {branch}{#if dirty}<span class="star" aria-hidden="true">*</span>{/if}
       </span>
     {/if}
   </button>
@@ -101,6 +103,11 @@
 
   .branch svg {
     flex: none;
+  }
+
+  .star {
+    margin-left: 1px;
+    color: var(--danger);
   }
 
   .prompt:hover:not(:disabled) .dir {

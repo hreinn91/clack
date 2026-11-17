@@ -26,6 +26,8 @@ import type {
 import type {
   ContextDetail,
   ContextUsage,
+  GitStatus,
+  GitSummary,
   Draft,
   EffortLevel,
   Item,
@@ -41,6 +43,7 @@ import type {
   Stamp,
 } from '../../shared/protocol.ts';
 import { rememberTools } from './capabilities.ts';
+import { gitStatus } from './git.ts';
 import { TaskBoard } from './tasks.ts';
 import { config } from './config.ts';
 import { ensureFolder, folderLabel, gitBranch, insideDir, insideSessions, isFolder } from './folders.ts';
@@ -136,6 +139,9 @@ export class LiveSession {
 
   /** Background work of the running process, for the list under the chat's title. */
   private tasks = new TaskBoard();
+  /** Uncommitted changes in the folder's repository, counted, as of the last look. */
+  private gitSummary: GitSummary | undefined;
+  private gitTimer: ReturnType<typeof setTimeout> | undefined;
   /** False until Claude Code has written this session's transcript, after which it must be resumed rather than created. */
   private onDisk: boolean;
   private q: Query | undefined;
@@ -193,6 +199,7 @@ export class LiveSession {
       folderMissing: !isFolder(this.cwd),
       gitBranch: gitBranch(this.cwd),
       tasks: this.tasks.list(),
+      ...(this.gitSummary ? { gitChanges: this.gitSummary } : {}),
     };
   }
 
@@ -209,6 +216,8 @@ export class LiveSession {
 
   subscribe(listener: Listener): void {
     this.listeners.add(listener);
+    // Someone is looking: files may have changed since the last look, here or elsewhere.
+    this.lookAtGitSoon(0);
   }
 
   unsubscribe(listener: Listener): void {
@@ -323,9 +332,40 @@ export class LiveSession {
     if (this.onDisk) await relocateTranscript(this.sessionId, cwd);
     this.cwd = cwd;
     saveMovedFolder(this.sessionId, folderLabel(cwd));
+    this.gitSummary = undefined;
+    this.lookAtGitSoon(0);
     this.emitMeta();
     this.notice('info', `This chat now works in the folder ${folderLabel(cwd)}.`);
     bus.emit('sessions_changed');
+  }
+
+  /**
+   * Looks at the folder's git repository again after a moment. Calls close together, such as one
+   * per tool Claude runs, end up as a single look.
+   */
+  private lookAtGitSoon(delay = 1500): void {
+    clearTimeout(this.gitTimer);
+    this.gitTimer = setTimeout(() => void this.gitDetail().catch(() => undefined), delay);
+    this.gitTimer.unref?.();
+  }
+
+  /** What is changed and not committed in the folder's repository; null when it is not in one. */
+  async gitDetail(): Promise<GitStatus | null> {
+    const status = await gitStatus(this.cwd);
+    const next: GitSummary | undefined = status
+      ? { files: status.files, untracked: status.untracked, added: status.added, deleted: status.deleted, checkedAt: status.checkedAt }
+      : undefined;
+    const before = this.gitSummary;
+    this.gitSummary = next;
+    const same =
+      before?.files === next?.files &&
+      before?.untracked === next?.untracked &&
+      before?.added === next?.added &&
+      before?.deleted === next?.deleted;
+    if (!same) this.emitMeta();
+    // While someone has the chat open, files changed outside it (a terminal, an editor) show up too.
+    if (status && this.listeners.size) this.lookAtGitSoon(20_000);
+    return status;
   }
 
   /** Stops one piece of background work. Claude Code then reports it as stopped. */
@@ -474,6 +514,8 @@ export class LiveSession {
           tool.result = { text: toolResultText(block.content), isError: block.is_error === true };
           this.log('tool_result', `${tool.name}: ${clip(tool.result.text)}`, tool.result.isError);
           this.emit({ t: 'tool_result', id: tool.id, ...tool.result });
+          // Any tool may have changed files (Bash as much as Edit), so the repository is looked at again.
+          this.lookAtGitSoon();
         }
         break;
 
@@ -489,6 +531,7 @@ export class LiveSession {
         bus.emit('sessions_changed');
         void this.signReplies();
         void this.measure();
+        this.lookAtGitSoon(300);
         break;
 
       case 'rate_limit_event':
@@ -841,6 +884,11 @@ export async function moveChat(sessionId: string, folder: unknown): Promise<void
 /** What fills a chat's context window right now. */
 export async function contextDetail(sessionId: string): Promise<ContextDetail> {
   return (await openSession(sessionId)).contextDetail();
+}
+
+/** What is changed and not committed in a chat's git repository; null when it is not in one. */
+export async function gitDetail(sessionId: string): Promise<GitStatus | null> {
+  return (await openSession(sessionId)).gitDetail();
 }
 
 /** Stops one piece of background work in a chat. */

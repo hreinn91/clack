@@ -6,6 +6,7 @@ import type {
   FilePreview,
   Capabilities,
   ContextDetail,
+  GitStatus,
   FolderInfo,
   Item,
   LogEntry,
@@ -275,6 +276,11 @@ class AppState {
   async loadCapabilities(folder: string, fresh = false): Promise<Capabilities> {
     const query = new URLSearchParams({ ...(folder ? { folder } : {}), ...(fresh ? { fresh: '1' } : {}) }).toString();
     return api<Capabilities>(`/api/capabilities${query ? `?${query}` : ''}`);
+  }
+
+  /** What is changed and not committed in a chat's git repository; null when it is not in one. Throws, so the list can say what went wrong. */
+  async loadGitStatus(sessionId: string): Promise<GitStatus | null> {
+    return (await api<{ status: GitStatus | null }>(`/api/sessions/${sessionId}/git`)).status;
   }
 
   /** Stops one of a chat's background tasks. Throws, so the list can say what went wrong. */

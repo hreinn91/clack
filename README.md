@@ -215,7 +215,8 @@ The window has four parts:
   is working in it. See [Managing chats](#managing-chats).
 - **Message box:** beside the send button, where the chat works is written like a shell
   prompt: the folder (deep ones shortened to their last two parts) and, when the folder
-  is in a git repository, `on` and the branch. Only repositories under `data/sessions`
+  is in a git repository, `on` and the branch, with a `*` when something is not
+  committed. Only repositories under `data/sessions`
   count. Click it to [change the folder](#managing-chats).
 - **Conversation:** messages are stacked on the left, each with a picture, a name and
   the time. Yours carry your name. Claude's carry the model and the effort it ran at,
@@ -362,6 +363,19 @@ listed below, with whether they were done, failed or stopped, and how long they 
 A chat with background work still going is not shut down when it sits idle, since that
 would end the work. When a background agent is done, the chat says so in a short note,
 and Claude usually replies to what it found.
+
+**Changes** beside those two appears when the chat's folder is in a git repository
+under `data/sessions`. With everything committed it reads **No changes** and does
+nothing. With uncommitted changes it shows how many files and how many lines were
+added and removed, the branch in the message box gets a `*`, and clicking it lists the
+files the way `git status` groups them: in conflict, staged, not staged and untracked.
+Each file has git's letter for the change (M modified, A added, D deleted, R renamed,
+U untracked) and its lines added and removed; a new file counts all its lines as
+added. The list also says how many commits are not pushed or still to pull. The counts
+are taken again when the chat is opened, shortly after each tool Claude runs, when a
+reply ends, each time the list is opened, and every 20 seconds while the chat is open
+(so a commit made in a terminal shows up too). clack asks git with the settings that
+would run other programs (filesystem monitors, external diff tools) switched off.
 
 The figures are read again after every turn in any chat, when Claude Code reports that
 a limit has moved, and with **Refresh** on the page. They come from a part of the Agent
@@ -530,6 +544,7 @@ npm run check
 | `server/src/terminal.ts` | Runs the shells behind the data page's terminals |
 | `server/src/uploads.ts` | Saves files attached to a message into the chat's folder |
 | `server/src/capabilities.ts` | Asks Claude Code which MCP servers, skills, agents and tools it has, for the Tools page |
+| `server/src/git.ts` | Reads a chat's uncommitted changes from git, with lines added and removed per file |
 | `server/src/tasks.ts` | Keeps track of each chat's background tasks and agents from Claude Code's task events |
 | `server/src/usage.ts` | Reads how much of the Claude plan's limits is used |
 | `server/src/relocate.ts` | Moves a conversation within Claude Code's storage when a chat changes folder |
