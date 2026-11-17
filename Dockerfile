@@ -37,8 +37,14 @@ FROM node:24-bookworm-slim
 # expect to find. Add to this list to have more tools in the container.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        bash ca-certificates curl git jq less nano openssh-client procps python3 ripgrep tini unzip \
+        bash ca-certificates curl git jq less nano openssh-client procps python3 ripgrep socat tini unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# A server ssh has never seen is trusted the first time and remembered in
+# ~/.ssh/known_hosts (in the home volume); a key that changes later is still
+# refused. Without this the first `git clone git@github.com:…` stops at a
+# question that Claude's commands cannot answer.
+RUN printf 'Host *\n    StrictHostKeyChecking accept-new\n' > /etc/ssh/ssh_config.d/clack.conf
 
 WORKDIR /app
 COPY --from=build /app/package.json ./

@@ -141,8 +141,62 @@ Debian with Node, the app, Claude Code (the copy that comes with the Agent SDK, 
 user, so they see the container's files and tools, not the host's. To have more tools,
 add them to the `apt-get install` line in the `Dockerfile` and rebuild.
 
-The container starts as root only to make the two mounted places usable by the app's
-user, then drops to that user; clack itself never runs as root.
+The container starts as root only to make what is mounted into it (the data directory,
+the home volume and, if you use it, the SSH agent) usable by the app's user, then drops
+to that user; clack itself never runs as root. The one exception is a small `socat`
+relay for the SSH agent, described under [SSH keys](#ssh-keys).
+
+The first time `ssh` or `git` meets a server, its key is accepted and remembered in the
+home volume (`~/.ssh/known_hosts`); a key that changes later is refused. Without that,
+a first `git clone git@github.com:…` would stop at a question Claude cannot answer.
+
+### SSH keys
+
+clack can use the SSH agent on your computer, so `git` and `ssh` in the container
+(Claude's commands and the terminals) sign in with your keys. The private keys never
+enter the container: only the agent's socket is passed in, and the agent does the
+signing on the host.
+
+1. Load the keys clack should use into your agent (`ssh-add -l` lists them).
+2. Turn the feature on in `.env`:
+
+   ```bash
+   COMPOSE_FILE=docker-compose.yml:docker-compose.ssh.yml
+   ```
+
+3. Tell Docker where the agent is, depending on what runs it:
+   - **Docker Desktop or OrbStack on a Mac:** nothing to do; they pass your Mac's agent
+     to containers at a fixed place.
+   - **colima:** start it with the agent forwarded, `colima start --ssh-agent`. That is
+     remembered (`forwardAgent: true` in `~/.colima/default/colima.yaml`), and colima
+     then offers the agent at the same place as Docker Desktop.
+   - **Linux:** set `CLACK_SSH_AUTH_SOCK` in `.env` to your agent's socket. Pick a path
+     that stays the same between logins, such as the one the `ssh-agent` systemd user
+     service makes (`/run/user/1000/ssh-agent.socket`) or GNOME Keyring's
+     (`/run/user/1000/keyring/ssh`).
+4. Run `docker compose up -d`, then check from a terminal on the data page:
+
+   ```bash
+   ssh-add -l
+   ```
+
+   It should list the same keys as on the host. If the agent cannot be reached, the
+   reason is in `docker compose logs clack`.
+
+The agent's socket belongs to root with Docker Desktop, to the virtual machine's user
+with colima, and to you on Linux, so the app's user usually cannot open it as it is.
+The start-up script then runs a small `socat` relay as root that offers the agent on a
+socket only the app's user can open (`/run/clack-ssh/agent.sock`), and points
+`SSH_AUTH_SOCK` there. Nothing about the socket outside the container is changed.
+
+If `ssh-add -l` in the container stops working after colima or Docker Desktop was
+restarted, the container may still hold the old agent socket: recreate it with
+`docker compose up -d --force-recreate`.
+
+Anyone who can sign in to clack can use these keys while it runs, and in auto mode
+Claude can run `git push` or `ssh` without asking. Load only the keys clack should
+have, ideally a deploy key limited to the repositories it works on, or run a separate
+agent just for clack.
 
 ## The interface
 
@@ -432,6 +486,7 @@ npm run check
 | `web/src/components` | Svelte components; `Chat.svelte` groups the transcript into messages by sender, `Data.svelte` is the data page |
 | `web/src/app.css` | The colour scheme and shared styles |
 | `Dockerfile`, `docker-compose.yml` | The container image and how to run it |
+| `docker-compose.ssh.yml` | Optional: passes your SSH agent into the container |
 | `docker/` | The container's start-up script and the `claude` command it offers |
 
 ## Security
@@ -480,6 +535,9 @@ If people other than you will use the UI, treat it as giving them a shell on the
   container. They reach the data directory and the container's own files, not the rest
   of the host's disk. That narrows what a mistake or a stolen sign-in can touch; it is
   still not a place to run things you do not trust.
+- With the [SSH agent](#ssh-keys) passed in, anything running in the container can ask
+  the agent to sign with every key loaded in it, for as long as clack runs. The keys
+  themselves cannot be copied out.
 - Attached files can only land in the `uploads/` folder of a chat. Their names are
   reduced to plain file names first, and an existing file is never overwritten.
 

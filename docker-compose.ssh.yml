@@ -1,0 +1,27 @@
+# Lets clack use your SSH agent: git and ssh in the container (Claude's commands
+# and the terminals) sign in with the keys loaded on the host. The private keys
+# never enter the container; only the agent's socket does.
+#
+# Turned on by adding this file to the ones Docker Compose reads, in .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.ssh.yml
+#
+# Where the agent comes from (see "SSH keys" in the README):
+#   - Docker Desktop and OrbStack on a Mac: nothing to set.
+#   - colima: start it with the agent forwarded (colima start --ssh-agent); nothing to set.
+#   - Linux: set CLACK_SSH_AUTH_SOCK in .env to your agent's socket.
+#
+# Anyone who can sign in to clack can use these keys while it runs. Load only
+# the keys clack should have.
+
+services:
+  clack:
+    volumes:
+      - type: bind
+        source: ${CLACK_SSH_AUTH_SOCK:-/run/host-services/ssh-auth.sock}
+        target: /run/host-ssh-agent.sock
+        # A missing socket is an error, rather than an empty folder Docker makes in its place.
+        bind:
+          create_host_path: false
+    environment:
+      # The start-up script makes this usable by the app's user and sets SSH_AUTH_SOCK.
+      CLACK_SSH_AGENT: /run/host-ssh-agent.sock
