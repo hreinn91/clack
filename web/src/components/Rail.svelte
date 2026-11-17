@@ -7,7 +7,9 @@
   // Home is the conversation list: it goes back to the most recent chat.
   const home = $derived(app.sessions[0] ? `#/s/${app.sessions[0].sessionId}` : '#/new');
   const section = $derived(
-    app.route.name === 'debug' || app.route.name === 'data' || app.route.name === 'theme' || app.route.name === 'usage' ? app.route.name : 'home',
+    app.route.name === 'debug' || app.route.name === 'data' || app.route.name === 'theme' || app.route.name === 'usage' || app.route.name === 'tools'
+      ? app.route.name
+      : 'home',
   );
 </script>
 
@@ -48,6 +50,15 @@
       </svg>
     </span>
     Usage
+  </a>
+
+  <a class="item" class:active={section === 'tools'} href="#/tools" aria-current={section === 'tools' ? 'page' : undefined}>
+    <span class="tile">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.6 3.4a4 4 0 0 0-4.9 5.3L3.5 12.9a1.6 1.6 0 0 0 2.3 2.3l4.2-4.2a4 4 0 0 0 5.3-4.9l-2.4 2.4-2.1-.4-.4-2.1z" />
+      </svg>
+    </span>
+    Tools
   </a>
 
   <a class="item" class:active={section === 'debug'} href="#/debug/log" aria-current={section === 'debug' ? 'page' : undefined}>

@@ -205,13 +205,18 @@ The window has four parts:
 - **Top bar:** back and forward, and a search field that narrows the chats and folders
   in the sidebar as you type. Escape clears it.
 - **Rail** on the far left: **Home** returns to the most recent chat, **Usage** shows
-  your plan's [limits](#usage), **Activity** opens
+  your plan's [limits](#usage), **Tools** lists the [MCP servers, skills and
+  tools](#tools-and-skills) Claude can use, **Activity** opens
   the [activity log](#activity-log), **Data** opens the [data page](#data-page),
   **Theme** opens the [themes](#themes), **+** starts a chat, and your picture at the bottom shows whether the browser is connected
   and holds **Sign out**.
 - **Sidebar:** **Chats** shows the folders under `data/sessions` as a tree, with each
   folder's chats listed under it. The dot before a chat is lit and pulsing while Claude
   is working in it. See [Managing chats](#managing-chats).
+- **Message box:** beside the send button, where the chat works is written like a shell
+  prompt: the folder (deep ones shortened to their last two parts) and, when the folder
+  is in a git repository, `on` and the branch. Only repositories under `data/sessions`
+  count. Click it to [change the folder](#managing-chats).
 - **Conversation:** messages are stacked on the left, each with a picture, a name and
   the time. Yours carry your name. Claude's carry the model and the effort it ran at,
   such as **Fable 5.2 High**, so a chat that switched model or effort part-way shows
@@ -308,9 +313,9 @@ The **New chat** page asks where the chat should work, with two choices:
   makes nested folders (up to eight deep). Leaving the name empty makes one up, such as
   `chat-20261117-203112`. If the folder is already there, the preview says so and the
   chat joins it.
-- **Existing folder:** a list of your top-level folders and the folders that already
-  have chats, with how many chats each has. Click one to start. Deeper folders can be
-  picked in the sidebar.
+- **Existing folder:** the same fuzzy search as **Change folder**, over every folder
+  under `data/sessions`. With nothing typed it lists your top-level folders and the
+  folders that have chats, with how many chats each has. Pick one to start.
 
 There is no way to start or resume a chat anywhere else from
 the UI, and Claude Code sessions from elsewhere on the computer are not listed.
@@ -339,16 +344,51 @@ running out. It is blue while there is plenty left, turns amber as it runs low a
 near the end. Clicking it lists every limit, and how full the model's context window is
 in that chat (known once a turn has finished there).
 
+**Context** beside the title at the top of a chat shows how full that chat's context
+window is. Clicking it opens what Claude Code's `/context` shows: the percentage and
+token count, where automatic compacting starts, and what takes up the room (the
+conversation, the system prompt, tools, CLAUDE.md files, skills, MCP servers, agents),
+as a bar and as a list with the figures. Tool definitions that are only loaded when
+needed are mentioned but not counted. Each opening measures again; the round arrow does
+too. If the chat has no Claude Code process at that moment, one is started to count,
+which takes a few seconds, and it stops again after the usual idle time.
+
 The figures are read again after every turn in any chat, when Claude Code reports that
 a limit has moved, and with **Refresh** on the page. They come from a part of the Agent
 SDK that is marked experimental, so a future version may change or remove it; clack
 then shows what it can still read.
 
+## Tools and skills
+
+**Tools** in the rail lists what Claude can use in your chats:
+
+- **MCP servers**, with whether each is connected (or needs signing in, or failed),
+  where it is set up (yours, a folder's `.mcp.json`, a claude.ai connector, a plugin),
+  and its tools with what they do. Click a server to see its tools.
+- **Skills**, every one Claude Code loads, with what each is for and where it comes from
+  (built in, yours, a folder's, a plugin's, your Claude account's). Most can also be run
+  as `/name`; the ones marked **Claude only** cannot, and Claude uses them on its own.
+- **Agents** Claude can hand work to, and **your own slash commands**.
+- **Built-in tools** such as Bash, Read and Edit. Claude Code only names these when a
+  conversation starts, so the list is the one the most recent chat reported (kept in
+  `data/tools.json`), and is empty until a chat has started.
+
+**Everywhere** shows your own setup. Pick a folder to also see what it sets up itself,
+such as a `.mcp.json` or skills under `.claude/skills` in it. The filter narrows every
+section at once.
+
+The list comes from a short-lived Claude Code process started in that folder, which is
+asked and not sent anything, so it costs no tokens. MCP servers connect in the
+background, so it takes a few seconds; the answer is kept for five minutes, and
+**Refresh** asks again.
+
 ## Managing chats
 
-The sidebar shows every folder under `data/sessions` as a tree, at any depth. Hidden
-folders (such as `.git`) and `node_modules` are left out, and so are files: those are on
-the [data page](#data-page).
+The sidebar shows every folder under `data/sessions` as a tree, at any depth. The tree
+starts at `data/sessions` itself, with thin lines showing what is inside what, since
+every chat works in a folder in there. Hidden folders (such as `.git`) and
+`node_modules` are left out, and so are files: those are on the
+[data page](#data-page).
 
 - A folder that chats work in has a filled green icon and the number of its chats. A
   folder with no chats anywhere inside it is dimmed. A folded folder with chats further
@@ -358,16 +398,18 @@ the [data page](#data-page).
   or unfold it; the browser remembers it.
 - **New chat in a folder:** hover the folder (on a touch screen the buttons are always
   there) and click the speech-bubble button. The chat starts there straight away.
-- **New folder:** the folder button beside **Chats** makes one at the top level, and the
-  same button on a folder's row makes one inside it. Type the name and press Enter, or
+- **New folder:** the folder button on the `data/sessions` row makes one at the top
+  level, and the same button on a folder's row makes one inside it. Type the name and press Enter, or
   Escape to cancel.
 
 - **Rename:** click the title at the top of a chat, or use **Rename…** in a chat's
   **⋯** menu (in the sidebar row, or at the top right of the chat).
-- **Change folder:** click the folder button beside the title, or **Change folder…** in
-  the menu. Pick an existing folder or type a new name to create one under
-  `data/sessions`. Claude works there from the next message and keeps the conversation
-  so far. No files are moved: what the chat made or was given earlier stays in the old
+- **Change folder:** click the folder in the message box, or **Change folder…** in the
+  menu. A search box finds any folder under `data/sessions`, fuzzy like fzf: the letters
+  you type must appear in order, gaps allowed, so `wca` finds `work/client-a`; spaces
+  separate words that must all match. Pick with the arrow keys and Enter, or click. A
+  name that is not a folder yet is offered as **Create**. Claude works there from the
+  next message and keeps the conversation so far. No files are moved: what the chat made or was given earlier stays in the old
   folder, and pictures attached before the move are shown by name only.
 - **Archive:** puts a chat in the **Archived** section, folded shut at the bottom of the
   sidebar. Take it out again from its menu; sending a message in it does the same.
@@ -477,6 +519,7 @@ npm run check
 | `server/src/files.ts` | Lists folders and previews files for the data page, and keeps both inside the data directory |
 | `server/src/terminal.ts` | Runs the shells behind the data page's terminals |
 | `server/src/uploads.ts` | Saves files attached to a message into the chat's folder |
+| `server/src/capabilities.ts` | Asks Claude Code which MCP servers, skills, agents and tools it has, for the Tools page |
 | `server/src/usage.ts` | Reads how much of the Claude plan's limits is used |
 | `server/src/relocate.ts` | Moves a conversation within Claude Code's storage when a chat changes folder |
 | `web/src/lib/theme.svelte.ts` | The themes, and how the app's colours are worked out from one |

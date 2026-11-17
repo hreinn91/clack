@@ -415,6 +415,10 @@ const isLight = (hex: string) => luminance(hex) > 0.4;
 /** Black or white, whichever reads better on a colour. */
 const inkOn = (hex: string) => (luminance(hex) > 0.36 ? '#111111' : '#ffffff');
 
+/** Colours for charts, checked to stay apart for colour-blind readers, in light and dark. */
+const SERIES_LIGHT = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
+const SERIES_DARK = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#0ca30c', '#9085e9', '#e66767'];
+
 /** Every CSS variable the app uses, worked out from a theme's colours. */
 function variables(c: Colors, dark: boolean): Record<string, string> {
   const chromeLight = isLight(c.chrome);
@@ -450,6 +454,8 @@ function variables(c: Colors, dark: boolean): Record<string, string> {
     '--danger-soft': mix(c.danger, c.bg, 0.85),
     '--add': mix(c.ok, c.bg, 0.82),
     '--del': mix(c.danger, c.bg, 0.85),
+    // Chart colours: the same eight hues in a fixed order, stepped for a light or a dark page.
+    ...Object.fromEntries((dark ? SERIES_DARK : SERIES_LIGHT).map((hex, i) => [`--series-${i + 1}`, hex])),
     '--shadow': dark ? '0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 45%)' : '0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 10%)',
     '--term-bg': c.termBg,
     '--term-fg': c.termFg,

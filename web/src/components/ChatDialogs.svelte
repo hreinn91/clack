@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { folderPath } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import FolderFinder from './FolderFinder.svelte';
   import Modal from './Modal.svelte';
 
   // The questions asked about one chat: what to call it, which folder it
@@ -19,10 +19,10 @@
     busy = false;
   });
 
-  /** What the server will make of a typed folder name. */
-  const slug = $derived(folderPath(value));
-  const exists = $derived(app.folders.some((folder) => folder.name === slug));
-  const others = $derived(app.pickableFolders.filter((folder) => folder.name !== dialog?.session.folder));
+  // The folder list may be stale (folders made or deleted elsewhere): read it again when the dialog opens.
+  $effect(() => {
+    if (dialog?.kind === 'move') void app.loadFolders();
+  });
 
   function close() {
     if (!busy) app.dialog = null;
@@ -46,8 +46,8 @@
     if (!dialog) return;
     const { kind, session } = dialog;
     if (kind === 'rename') void run(() => app.renameChat(session.sessionId, value));
-    else if (kind === 'move') void run(() => app.moveChat(session.sessionId, slug));
-    else void run(() => app.deleteChat(session.sessionId));
+    else if (kind === 'delete') void run(() => app.deleteChat(session.sessionId));
+    // Moving happens when a folder is picked in the finder.
   }
 </script>
 
@@ -61,28 +61,16 @@
       {:else if dialog.kind === 'move'}
         <h2>Change folder</h2>
         <p>
-          <strong>{session.title}</strong> works in <code>{session.folder}</code>. Pick another folder, or type a new name
-          to create one. Claude works there from the next message. No files are moved.
+          <strong>{session.title}</strong> works in <code>{session.folder}</code>. Find another folder, or type a new name
+          to create one. Claude works there from the next message; no files are moved.
         </p>
-        <input type="text" class="mono" aria-label="Folder name" placeholder="folder-name" autocapitalize="off" autocomplete="off" spellcheck="false" maxlength="80" bind:value />
-        {#if slug}
-          <p class="path">
-            data/sessions/<strong>{slug}</strong>
-            <span>{slug === session.folder ? 'is where it works now' : exists ? 'exists already' : 'will be created'}</span>
-          </p>
-        {/if}
-        {#if others.length}
-          <ul class="folders" aria-label="Existing folders">
-            {#each others as folder (folder.name)}
-              <li>
-                <button type="button" class:on={folder.name === slug} onclick={() => (value = folder.name)}>
-                  <span aria-hidden="true">#</span>
-                  {folder.name}
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
+        <FolderFinder
+          current={session.folder}
+          {busy}
+          action="Move here"
+          placeholder="Find a folder, or name a new one"
+          onpick={(path) => void run(() => app.moveChat(session.sessionId, path))}
+        />
       {:else}
         <h2>Delete this chat?</h2>
         <p>
@@ -98,9 +86,7 @@
         <button type="button" class="btn" data-autofocus={dialog.kind === 'delete' ? '' : undefined} onclick={close} disabled={busy}>Cancel</button>
         {#if dialog.kind === 'rename'}
           <button class="btn primary" disabled={busy || !value.trim() || value.trim() === session.title}>Save</button>
-        {:else if dialog.kind === 'move'}
-          <button class="btn primary" disabled={busy || !slug || slug === session.folder}>Use this folder</button>
-        {:else}
+        {:else if dialog.kind === 'delete'}
           <button class="btn delete" disabled={busy}>Delete</button>
         {/if}
       </div>
@@ -142,61 +128,6 @@
     border-radius: 6px;
     background: var(--bg);
     font-size: 16px;
-  }
-
-  input.mono {
-    font-family: var(--mono);
-    font-size: 15px;
-  }
-
-  .path {
-    color: var(--muted);
-    font: 13px var(--mono);
-    overflow-wrap: anywhere;
-  }
-
-  .path strong {
-    color: var(--text);
-  }
-
-  .path span {
-    margin-left: 6px;
-    font-family: var(--font);
-  }
-
-  .folders {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    max-height: 168px;
-    overflow-y: auto;
-    list-style: none;
-  }
-
-  .folders button {
-    display: flex;
-    gap: 5px;
-    padding: 4px 10px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: none;
-    font: 13px var(--mono);
-  }
-
-  .folders button:hover {
-    border-color: var(--border-strong);
-    background: var(--hover);
-  }
-
-  .folders button.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-
-  .folders span {
-    color: var(--muted);
   }
 
   .error {

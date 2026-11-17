@@ -98,6 +98,14 @@
     return opened[node.path] ?? node.total > 0;
   }
 
+  /** data/sessions itself, at the top of the tree: open unless folded by hand. */
+  const rootOpen = $derived(query !== '' || (opened[''] ?? true));
+
+  function toggleRoot() {
+    opened[''] = !rootOpen;
+    remember();
+  }
+
   function toggle(node: Node) {
     opened[node.path] = !isOpen(node);
     remember();
@@ -289,7 +297,7 @@
       </button>
     </div>
     {#if open}
-      <ul>
+      <ul class="kids" style:--depth={node.depth}>
         {#each node.chats as chat (chat.sessionId)}
           {@render chatRow(chat, node.depth + 1)}
         {/each}
@@ -310,22 +318,49 @@
 <section>
   <div class="heading">
     <h2>Chats</h2>
-    <button class="tool shown" aria-label="New folder" title="New folder in data/sessions" onclick={() => void startCreate('')}>
-      {@render newFolderIcon()}
-    </button>
   </div>
 
+  <!-- Every chat folder lives in data/sessions, so the tree starts there. -->
   <ul class="tree">
-    {#if creating === ''}
-      {@render newFolderRow(0)}
-    {/if}
-    {#each shown as node (node.path)}
-      {@render folderRow(node)}
-    {/each}
+    <li>
+      <div class="folder root" class:quiet={tree.total === 0} style:--depth={-1}>
+        <button
+          class="name"
+          aria-expanded={rootOpen}
+          title={`data/sessions: every chat works in a folder in here${tree.total ? ` (${tree.total} chat${tree.total === 1 ? '' : 's'})` : ''}`}
+          onclick={toggleRoot}
+        >
+          <svg class="chevron" class:open={rootOpen} width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+            <path d="M3 1.5 7.5 5 3 8.5z" />
+          </svg>
+          <svg class="icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3.75 2.5h2.5l1.25 1.25h4.75c.55 0 1 .45 1 1v1" />
+            <path d="M1.75 6.75c0-.55.45-1 1-1h3l1.25 1.25h6.25c.55 0 1 .45 1 1v4.75c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1z" />
+          </svg>
+          <span class="label"><span class="pre">data/</span>sessions</span>
+          {#if !rootOpen && tree.total}
+            <span class="count below" aria-label={`${tree.total} chats inside`}>{tree.total}</span>
+          {/if}
+        </button>
+        <button class="tool shown" aria-label="New folder in data/sessions" title="New folder in data/sessions" onclick={() => void startCreate('')}>
+          {@render newFolderIcon()}
+        </button>
+      </div>
+      {#if rootOpen}
+        <ul class="kids" style:--depth={-1}>
+          {#if creating === ''}
+            {@render newFolderRow(0)}
+          {/if}
+          {#each shown as node (node.path)}
+            {@render folderRow(node)}
+          {/each}
+          {#if !shown.length && creating !== ''}
+            <li class="none" style:--depth={0}>{query ? 'Nothing matches.' : 'No folders yet. Make one with the button on this row, or start a chat.'}</li>
+          {/if}
+        </ul>
+      {/if}
+    </li>
   </ul>
-  {#if !shown.length && creating !== ''}
-    <p class="none">{query ? 'Nothing matches.' : 'No folders yet. Make one with the button above, or start a chat.'}</p>
-  {/if}
 
   {#if !query}
     <a class="new" href="#/new">
@@ -405,6 +440,45 @@
 
   .tree {
     margin-bottom: 4px;
+  }
+
+  /* Inside the tree everything sits one step in from data/sessions, the root row. */
+  .tree .folder,
+  .tree .chat,
+  .tree .new-folder {
+    --indent: calc(8px + (var(--depth, 0) + 1) * 14px);
+  }
+
+  .tree .none {
+    padding-left: calc(8px + (var(--depth, 0) + 1) * 14px + 16px);
+  }
+
+  /* A thin line down from each open folder's arrow, along everything inside it. */
+  .kids {
+    position: relative;
+  }
+
+  .kids::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 6px;
+    left: calc(8px + (var(--depth, 0) + 1) * 14px + 4.5px);
+    border-left: 1px solid color-mix(in srgb, var(--chrome-text) 40%, transparent);
+    pointer-events: none;
+  }
+
+  .folder.root {
+    color: var(--chrome-strong);
+  }
+
+  .root .name {
+    font-weight: 800;
+  }
+
+  .pre {
+    color: var(--chrome-muted);
+    font-weight: 500;
   }
 
   .folder,
@@ -658,9 +732,6 @@
     opacity: 0.6;
   }
 
-  p.none {
-    padding-left: 8px;
-  }
 
   .new {
     display: flex;

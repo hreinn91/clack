@@ -72,10 +72,34 @@ export type SessionMeta = {
   context?: ContextUsage;
   /** The chat's folder was deleted: it can be read, but not continued until the folder is back. */
   folderMissing: boolean;
+  /** The git branch the folder is on, when it is in a git repository under data/sessions. */
+  gitBranch?: string;
 };
 
 /** Tokens in the conversation against the most the model can hold; `percent` is 0 to 100. */
 export type ContextUsage = { tokens: number; max: number; percent: number };
+
+/**
+ * What fills a chat's context window, as Claude Code's /context counts it.
+ * Paths are shortened: "./" for the chat's folder, "~/" for the home folder.
+ */
+export type ContextDetail = ContextUsage & {
+  model: string;
+  measuredAt: number;
+  /** Where Claude Code compacts the conversation on its own, in tokens; missing when it does not. */
+  autoCompactAt?: number;
+  /**
+   * Rows with tokens in them. 'used' is in the window, 'free' is room left, 'buffer' is held back for
+   * compacting, 'deferred' is tool definitions that are only loaded when needed (not counted).
+   */
+  categories: { id: string; name: string; tokens: number; kind: 'used' | 'free' | 'buffer' | 'deferred' }[];
+  /** How the conversation itself splits up; rows with nothing in them are left out. */
+  messages: { label: string; tokens: number }[];
+  memoryFiles: { path: string; type: string; tokens: number }[];
+  mcpServers: { name: string; tools: number; tokens: number }[];
+  skills?: { included: number; total: number; tokens: number };
+  agents: { name: string; tokens: number }[];
+};
 
 /** One of the plan's limits: how much of it is used (0 to 100) and when it starts over. */
 export type UsageWindow = { id: string; label: string; used: number; resetsAt?: number };
@@ -173,6 +197,38 @@ export type SessionSummary = {
   archived: boolean;
   /** The folder it works in no longer exists. Shown with the archived chats until the folder is back. */
   missing: boolean;
+};
+
+/**
+ * What Claude Code can use in a folder: MCP servers and their tools, skills,
+ * agents, custom slash commands, and its built-in tools. `folder` is null for
+ * the top of data/sessions, where only your own (user-wide) setup applies.
+ */
+export type Capabilities = {
+  folder: string | null;
+  measuredAt: number;
+  mcpServers: {
+    name: string;
+    status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled';
+    /** Where it is set up: user, project, local, claudeai, plugin, managed… */
+    scope?: string;
+    version?: string;
+    error?: string;
+    tools: { name: string; description?: string; readOnly?: boolean; destructive?: boolean }[];
+  }[];
+  /**
+   * Every skill Claude Code loads. `invocable` is false for one only Claude can use (it is not a slash
+   * command); `description` is empty when Claude Code gives none (some built-in skills).
+   */
+  skills: { name: string; description: string; source: string; plugin?: string; invocable: boolean }[];
+  agents: { name: string; description: string; model?: string }[];
+  /** Slash commands that are not Claude Code's own and not skills. */
+  commands: { name: string; description: string; argumentHint?: string }[];
+  /**
+   * Claude Code's built-in tools, as the most recent chat to start reported them (it only says so
+   * when a conversation begins). Missing until a chat has started since this list was first kept.
+   */
+  tools?: { names: string[]; seenAt: number };
 };
 
 /** A folder under data/sessions; `name` is its path from there, with forward slashes ("work/client-a"). */

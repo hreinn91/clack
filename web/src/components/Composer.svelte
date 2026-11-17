@@ -3,6 +3,7 @@
   import type { EffortLevel, PermissionMode, Upload } from '../../../shared/protocol';
   import { fileSize, isImagePath, splitAttachments, withAttachments } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import FolderPrompt from './FolderPrompt.svelte';
   import Picker from './Picker.svelte';
   import UsageMeter from './UsageMeter.svelte';
 
@@ -263,6 +264,7 @@
       </div>
       <span class="end">
         <UsageMeter />
+        <FolderPrompt />
       {#if app.running}
         <button class="act stop" onclick={() => app.interrupt()}>
           <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="12" rx="2" fill="currentColor" /></svg>
@@ -422,9 +424,10 @@
 
   .row {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 8px;
+    gap: 4px 8px;
   }
 
   .pickers {
@@ -437,11 +440,14 @@
     color: var(--muted);
   }
 
+  /* The prompt keeps its room: when it does not fit beside the menus, it moves to a line of its own. */
   .end {
     display: flex;
     align-items: center;
     gap: 4px;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
   }
 
   .act {

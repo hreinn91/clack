@@ -4,6 +4,8 @@ import type {
   EffortLevel,
   FileListing,
   FilePreview,
+  Capabilities,
+  ContextDetail,
   FolderInfo,
   Item,
   LogEntry,
@@ -30,7 +32,8 @@ export type Route =
   | { name: 'debug'; tab: 'log' }
   | { name: 'data' }
   | { name: 'theme' }
-  | { name: 'usage' };
+  | { name: 'usage' }
+  | { name: 'tools' };
 
 function parseRoute(): Route {
   const match = location.hash.match(/^#\/s\/([0-9a-f-]{36})$/i);
@@ -40,6 +43,7 @@ function parseRoute(): Route {
   if (location.hash === '#/data') return { name: 'data' };
   if (location.hash === '#/theme') return { name: 'theme' };
   if (location.hash === '#/usage') return { name: 'usage' };
+  if (location.hash === '#/tools') return { name: 'tools' };
   // A folder picked in the sidebar: the new-chat page opens with it filled in.
   const folder = location.hash.match(/^#\/new\/([a-z0-9-]{1,64}(?:\/[a-z0-9-]{1,64}){0,7})$/);
   return folder ? { name: 'new', folder: folder[1]! } : { name: 'new' };
@@ -137,6 +141,28 @@ class AppState {
    * Until Claude Code reports the model it is running, the model picker's own
    * label stands in, then whoever replied last in this chat.
    */
+  /**
+   * The open chat as the sidebar lists it, so menus and dialogs can act on it.
+   * A brand-new chat is not listed until it has something in it; it is made up from what is known.
+   */
+  get currentChat(): SessionSummary | undefined {
+    const id = this.sessionId;
+    if (!id) return undefined;
+    const listed = this.sessions.find((chat) => chat.sessionId === id);
+    if (listed) return listed;
+    const meta = this.meta;
+    if (!meta) return undefined;
+    return {
+      sessionId: id,
+      title: meta.title ?? 'New chat',
+      folder: meta.folder,
+      lastModified: Date.now(),
+      running: this.running,
+      archived: false,
+      missing: meta.folderMissing,
+    };
+  }
+
   get modelName(): string {
     const meta = this.meta;
     if (meta?.activeModel) return authorName(meta.activeModel, meta.effort);
@@ -243,6 +269,17 @@ class AppState {
   async moveChat(id: string, folder: string): Promise<void> {
     await api(`/api/sessions/${id}`, { folder }, 'PATCH');
     await Promise.all([this.loadSessions(), this.loadFolders()]);
+  }
+
+  /** What Claude Code can use in a folder ('' for everywhere). Throws, so the page can say what went wrong. */
+  async loadCapabilities(folder: string, fresh = false): Promise<Capabilities> {
+    const query = new URLSearchParams({ ...(folder ? { folder } : {}), ...(fresh ? { fresh: '1' } : {}) }).toString();
+    return api<Capabilities>(`/api/capabilities${query ? `?${query}` : ''}`);
+  }
+
+  /** What fills a chat's context window. Throws, so the panel can say what went wrong. */
+  async loadContext(id: string): Promise<ContextDetail> {
+    return api<ContextDetail>(`/api/sessions/${id}/context`);
   }
 
   /** Creates a chat's deleted folder again, empty, so the chat can carry on. */

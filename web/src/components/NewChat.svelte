@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { ago, folderPath } from '../lib/format';
+  import { folderPath } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import FolderFinder from './FolderFinder.svelte';
   import Picker from './Picker.svelte';
 
   let { onmenu }: { onmenu: () => void } = $props();
@@ -16,7 +17,6 @@
   let parent = $state(TOP);
   let name = $state('');
   let starting = $state(false);
-  let filter = $state('');
   let nameField = $state<HTMLInputElement>();
 
   const touch = matchMedia('(pointer: coarse)').matches;
@@ -44,13 +44,6 @@
     });
   });
 
-  /** Chats that work in each folder, so the existing ones can say how busy they are. */
-  const chatCounts = $derived.by(() => {
-    const counts = new Map<string, number>();
-    for (const chat of app.sessions) if (!chat.archived && !chat.missing) counts.set(chat.folder, (counts.get(chat.folder) ?? 0) + 1);
-    return counts;
-  });
-
   const parentOptions = $derived([
     { value: TOP, label: 'Top level', description: 'Directly in data/sessions' },
     ...app.pickableFolders
@@ -58,11 +51,6 @@
       .sort((a, b) => a.localeCompare(b))
       .map((path) => ({ value: path, label: path, description: `Inside data/sessions/${path}` })),
   ]);
-
-  const existing = $derived.by(() => {
-    const query = filter.trim().toLowerCase();
-    return app.pickableFolders.filter((folder) => !query || folder.name.includes(query));
-  });
 
   async function start(folder: string) {
     starting = true;
@@ -79,7 +67,6 @@
 
   function choose(next: Mode) {
     mode = next;
-    filter = '';
   }
 
   $effect(() => {
@@ -205,40 +192,21 @@
       </form>
     {:else}
       <div class="card">
-        {#if app.pickableFolders.length > 6}
-          <input class="filter" type="search" placeholder="Filter folders" aria-label="Filter folders" bind:value={filter} />
-        {/if}
-        {#if existing.length}
-          <ul class="folders" aria-label="Existing folders">
-            {#each existing as folder (folder.name)}
-              {@const cut = folder.name.lastIndexOf('/')}
-              {@const count = chatCounts.get(folder.name) ?? 0}
-              <li>
-                <button class:offered={folder.name === offered} disabled={starting} onclick={() => start(folder.name)}>
-                  {@render folderIcon()}
-                  <span class="name">
-                    {#if cut !== -1}<span class="up">{folder.name.slice(0, cut + 1)}</span>{/if}{folder.name.slice(cut + 1)}
-                  </span>
-                  <span class="meta">
-                    {count ? `${count} chat${count === 1 ? '' : 's'}` : 'No chats'} · {ago(folder.modified)}
-                  </span>
-                  <span class="go" aria-hidden="true">Start chat →</span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {:else if app.pickableFolders.length}
-          <p class="empty">No folder matches “{filter}”.</p>
+        {#if app.folders.length}
+          <FolderFinder
+            allowCreate={false}
+            busy={starting}
+            action="Start chat"
+            placeholder="Find a folder"
+            initial={offered ?? ''}
+            onpick={(path) => void start(path)}
+          />
         {:else}
           <p class="empty">
             There are no folders yet.
             <button class="link" onclick={() => choose('create')}>Create one</button> to start.
           </p>
         {/if}
-        <p class="rules">
-          The chat sees whatever is already in the folder. Deeper folders can be picked in the sidebar: hover one and
-          click its speech bubble.
-        </p>
       </div>
     {/if}
 
@@ -487,77 +455,6 @@
     padding-inline: 18px;
   }
 
-  .filter {
-    font-family: var(--font);
-  }
-
-  .folders {
-    display: grid;
-    gap: 2px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .folders button {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 44px;
-    padding: 6px 10px;
-    border: 0;
-    border-radius: 7px;
-    background: none;
-    color: var(--text);
-    text-align: left;
-  }
-
-  .folders button:hover:not(:disabled),
-  .folders button:focus-visible,
-  .folders button.offered {
-    background: var(--sunken);
-  }
-
-  .folders svg {
-    flex: none;
-    color: var(--muted);
-  }
-
-  .name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font: 600 14px var(--mono);
-  }
-
-  .up {
-    color: var(--muted);
-    font-weight: 400;
-  }
-
-  .meta {
-    flex: none;
-    color: var(--muted);
-    font-size: 12.5px;
-  }
-
-  .go {
-    flex: none;
-    visibility: hidden;
-    color: var(--accent);
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .folders button:hover .go,
-  .folders button:focus-visible .go,
-  .folders button.offered .go {
-    visibility: visible;
-  }
-
   .empty {
     margin: 0;
   }
@@ -583,10 +480,6 @@
 
     .actions .btn {
       flex: 1;
-    }
-
-    .go {
-      display: none;
     }
   }
 </style>

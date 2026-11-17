@@ -24,6 +24,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type {
+  ContextDetail,
   ContextUsage,
   Draft,
   EffortLevel,
@@ -39,8 +40,9 @@ import type {
   SessionSummary,
   Stamp,
 } from '../../shared/protocol.ts';
+import { rememberTools } from './capabilities.ts';
 import { config } from './config.ts';
-import { ensureFolder, folderLabel, insideDir, insideSessions, isFolder } from './folders.ts';
+import { ensureFolder, folderLabel, gitBranch, insideDir, insideSessions, isFolder } from './folders.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
 import { projectDirName, relocateTranscript } from './relocate.ts';
@@ -181,6 +183,7 @@ export class LiveSession {
       title: this.title,
       context: this.context,
       folderMissing: !isFolder(this.cwd),
+      gitBranch: gitBranch(this.cwd),
     };
   }
 
@@ -390,6 +393,7 @@ export class LiveSession {
       case 'system':
         if (msg.subtype === 'init') {
           this.activeModel = msg.model;
+          rememberTools(msg.tools);
           this.adoptMode(msg.permissionMode);
           this.emitMeta();
         } else if (msg.subtype === 'status') {
@@ -466,6 +470,67 @@ export class LiveSession {
         if (this.q) void refreshUsageWith(this.q);
         break;
     }
+  }
+
+  /**
+   * The full breakdown of what is in the context window, as /context shows it.
+   * A chat without a running process gets one: Claude Code has to be running
+   * to count. It then stays until it has been idle for a while, like after a turn.
+   */
+  async contextDetail(): Promise<ContextDetail> {
+    if (!isFolder(this.cwd)) throw new Error(`This chat's folder, ${folderLabel(this.cwd)}, was deleted.`);
+    this.lastActivity = Date.now();
+    this.start();
+    const usage = await this.q!.getContextUsage({ detail: 'full' });
+    const home = homedir();
+    const short = (path: string) =>
+      insideDir(path, this.cwd)
+        ? `./${path.slice(this.cwd.length + 1)}`
+        : insideDir(path, home)
+          ? `~/${path.slice(home.length + 1)}`
+          : path;
+    const servers = new Map<string, { name: string; tools: number; tokens: number }>();
+    for (const tool of usage.mcpTools) {
+      const server = servers.get(tool.serverName) ?? { name: tool.serverName, tools: 0, tokens: 0 };
+      server.tools++;
+      server.tokens += tool.tokens;
+      servers.set(tool.serverName, server);
+    }
+    // The conversation's own parts. Claude Code's "attachments" figure also counts things the other
+    // categories already hold (a snapshot of the system prompt, the skills list), so instead the rest
+    // of the Messages row is shown as one part, and the parts add up to that row.
+    const m = usage.messageBreakdown;
+    const inMessages = usage.categories.find((row) => row.id === 'messages')?.tokens ?? 0;
+    const conversation = m
+      ? [
+          { label: 'Your messages', tokens: m.userMessageTokens },
+          { label: "Claude's replies", tokens: m.assistantMessageTokens },
+          { label: 'Tool calls', tokens: m.toolCallTokens },
+          { label: 'Tool results', tokens: m.toolResultTokens },
+        ]
+      : [];
+    const said = conversation.reduce((sum, row) => sum + row.tokens, 0);
+    if (m && inMessages > said) conversation.push({ label: 'Added by Claude Code', tokens: inMessages - said });
+    const detail: ContextDetail = {
+      model: usage.model,
+      tokens: usage.totalTokens,
+      max: usage.maxTokens,
+      percent: Math.round(usage.percentage),
+      measuredAt: Date.now(),
+      ...(usage.isAutoCompactEnabled && usage.autoCompactThreshold ? { autoCompactAt: usage.autoCompactThreshold } : {}),
+      categories: usage.categories
+        .filter((row) => row.tokens > 0)
+        .map((row) => ({ id: row.id ?? 'other', name: row.name, tokens: row.tokens, kind: row.kind })),
+      messages: conversation.filter((row) => row.tokens > 0),
+      memoryFiles: usage.memoryFiles.map((file) => ({ path: short(file.path), type: file.type, tokens: file.tokens })),
+      mcpServers: [...servers.values()].sort((a, b) => b.tokens - a.tokens),
+      ...(usage.skills?.tokens ? { skills: { included: usage.skills.includedSkills, total: usage.skills.totalSkills, tokens: usage.skills.tokens } } : {}),
+      agents: usage.agents.map((agent) => ({ name: agent.agentType, tokens: agent.tokens })).sort((a, b) => b.tokens - a.tokens),
+    };
+    // The ring by the send button shows the same figure, so it is brought up to date too.
+    this.context = { tokens: detail.tokens, max: detail.max, percent: detail.percent };
+    this.emitMeta();
+    return detail;
   }
 
   /** After a turn: how full the context window is now, and how much of the plan's limits is used. */
@@ -745,6 +810,11 @@ export async function renameChat(sessionId: string, title: unknown): Promise<voi
 export async function moveChat(sessionId: string, folder: unknown): Promise<void> {
   const session = await openSession(sessionId);
   await session.move(await ensureFolder(folder, true));
+}
+
+/** What fills a chat's context window right now. */
+export async function contextDetail(sessionId: string): Promise<ContextDetail> {
+  return (await openSession(sessionId)).contextDetail();
 }
 
 /** Creates a chat's deleted folder again, so the chat can carry on. */

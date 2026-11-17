@@ -13,6 +13,7 @@
 
   const PAGES: { label: string; hash: string }[] = [
     { label: 'Usage and limits', hash: '#/usage' },
+    { label: 'Tools, skills and MCP servers', hash: '#/tools' },
     { label: 'Activity log', hash: '#/debug/log' },
     { label: 'Data and terminals', hash: '#/data' },
     { label: 'Theme', hash: '#/theme' },

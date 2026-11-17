@@ -4,6 +4,8 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import type {
+  Capabilities,
+  ContextDetail,
   FileListing,
   FilePreview,
   FolderInfo,
@@ -18,10 +20,11 @@ import { isAuthed, login, logout, sameOrigin } from './auth.ts';
 import { config, tokenFile } from './config.ts';
 import { FileError, listDir, openImage, previewFile } from './files.ts';
 import { MAX_UPLOAD_BYTES, saveUpload } from './uploads.ts';
+import { capabilities } from './capabilities.ts';
 import { ensureFolder, folderLabel, listFolders } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
 import { listModels } from './models.ts';
-import { bus, createSession, deleteChat, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll } from './sessions.ts';
+import { bus, contextDetail, createSession, deleteChat, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
 import { planUsage } from './usage.ts';
 import { registerWs } from './ws.ts';
@@ -88,6 +91,15 @@ app.patch('/api/sessions/:id', async (req, reply) => {
   }
 });
 
+// What fills a chat's context window, for the panel under the chat's title.
+app.get('/api/sessions/:id/context', async (req, reply): Promise<ContextDetail | undefined> => {
+  try {
+    return await contextDetail((req.params as { id: string }).id);
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'The context could not be measured.' });
+  }
+});
+
 app.delete('/api/sessions/:id', async (req, reply) => {
   try {
     await deleteChat((req.params as { id: string }).id);
@@ -98,6 +110,16 @@ app.delete('/api/sessions/:id', async (req, reply) => {
 });
 
 app.get('/api/folders', async (): Promise<FolderInfo[]> => listFolders());
+
+// What Claude Code can use in a folder (or, with no folder, everywhere): MCP servers, skills, agents, tools.
+app.get('/api/capabilities', async (req, reply): Promise<Capabilities | undefined> => {
+  const params = req.query as { folder?: string; fresh?: string };
+  try {
+    return await capabilities(params.folder ?? '', params.fresh === '1');
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'Claude Code could not be asked.' });
+  }
+});
 
 // A new, empty folder for chats, at any depth under data/sessions ("work/client-a").
 app.post('/api/folders', async (req, reply) => {

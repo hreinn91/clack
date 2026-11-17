@@ -1,6 +1,6 @@
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { mkdir, readdir, realpath, stat } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { FolderInfo } from '../../shared/protocol.ts';
 import { config } from './config.ts';
 
@@ -41,6 +41,39 @@ const MAX_DEPTH = 8;
  */
 export function slugPath(path: string): string {
   return path.split(/[\\/]+/).map(slugify).filter(Boolean).slice(0, MAX_DEPTH).join('/');
+}
+
+/**
+ * The git branch a chat's folder is on, when the folder is in a git
+ * repository that is itself under data/sessions; for a detached checkout, the
+ * start of the commit's hash. The search stops at data/sessions, so a
+ * repository the data directory happens to sit in is never reported.
+ */
+export function gitBranch(cwd: string): string | undefined {
+  for (let dir = cwd; insideSessions(dir); dir = dirname(dir)) {
+    const dotGit = join(dir, '.git');
+    let gitDir: string;
+    try {
+      // A worktree or submodule has a file pointing at the real git directory.
+      if (statSync(dotGit).isFile()) {
+        const pointer = readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/m);
+        if (!pointer) return undefined;
+        gitDir = resolve(dir, pointer[1]!.trim());
+      } else {
+        gitDir = dotGit;
+      }
+    } catch {
+      continue; // no .git here: look one folder up
+    }
+    try {
+      const head = readFileSync(join(gitDir, 'HEAD'), 'utf8').trim();
+      const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/);
+      return ref ? ref[1] : /^[0-9a-f]{7,}$/.test(head) ? head.slice(0, 7) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 /** True when a path is an existing directory. */

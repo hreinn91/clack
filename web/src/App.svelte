@@ -11,6 +11,7 @@
   import Sidebar from './components/Sidebar.svelte';
   import Theme from './components/Theme.svelte';
   import TopBar from './components/TopBar.svelte';
+  import Tools from './components/Tools.svelte';
   import Usage from './components/Usage.svelte';
   import { app, SIDEBAR } from './lib/state.svelte';
 
@@ -135,6 +136,8 @@
         <Theme onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'usage'}
         <Usage onmenu={() => (drawerOpen = true)} />
+      {:else if app.route.name === 'tools'}
+        <Tools onmenu={() => (drawerOpen = true)} />
       {:else}
         <NewChat onmenu={() => (drawerOpen = true)} />
       {/if}

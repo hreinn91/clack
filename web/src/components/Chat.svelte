@@ -3,6 +3,7 @@
   import { authorName, dayKey, dayLabel } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import ActionMenu from './ActionMenu.svelte';
+  import ContextPanel from './ContextPanel.svelte';
   import Avatar from './Avatar.svelte';
   import Composer from './Composer.svelte';
   import Entry from './Entry.svelte';
@@ -26,13 +27,8 @@
   /** The chat's folder was deleted: it can be read, and continued once it has a folder again. */
   const gone = $derived(app.meta?.folderMissing ?? false);
 
-  /** This chat as the sidebar lists it. Missing for a moment while a brand-new chat has nothing in it. */
-  const summary = $derived(
-    app.sessions.find((s) => s.sessionId === app.sessionId) ??
-      (app.sessionId && app.meta
-        ? { sessionId: app.sessionId, title, folder, lastModified: Date.now(), running: app.running, archived: false, missing: app.meta.folderMissing }
-        : undefined),
-  );
+  /** This chat as the sidebar lists it. */
+  const summary = $derived(app.currentChat);
 
   const actions = $derived(
     summary
@@ -179,14 +175,7 @@
     <h1><button class="title" title="Rename this chat" onclick={startRename}>{title}</button></h1>
   {/if}
   <p class="where">
-    {#if folder && summary}
-      <button class="folder" title="The folder this chat works in. Click to change it." onclick={() => (app.dialog = { kind: 'move', session: summary })}>
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
-          <path d="M1.75 4.25c0-.7.55-1.25 1.25-1.25h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25v5.75c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25z" />
-        </svg>
-        {folder}
-      </button>
-    {/if}
+    {#if summary && !gone}<ContextPanel />{/if}
     {#if gone}
       <span class="archived" title="This chat's folder was deleted">Folder deleted</span>
     {:else if summary?.archived}
@@ -326,30 +315,6 @@
     font-weight: 900;
   }
 
-  .folder {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    max-width: 100%;
-    padding: 2px 7px;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: none;
-    color: inherit;
-    font: 12px var(--mono);
-    vertical-align: middle;
-  }
-
-  .folder:hover {
-    border-color: var(--border-strong);
-    background: var(--hover);
-    color: var(--text);
-  }
-
-  .folder svg {
-    flex: none;
-  }
-
   .gone {
     display: flex;
     flex-wrap: wrap;
@@ -476,9 +441,13 @@
     color: var(--danger);
   }
 
-  /* Too narrow to show both: the title wins, and the picture still hints at the folder. */
+  /* Too narrow for everything: the title wins, and only the small context chip stays beside it. */
   @media (max-width: 520px) {
     .where {
+      flex: none;
+    }
+
+    .where .archived {
       display: none;
     }
   }
