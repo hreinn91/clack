@@ -98,7 +98,28 @@ export async function previewFile(path: unknown): Promise<FilePreview> {
 
 /** Opens a picture for the browser to show. Only the image types above are ever served this way. */
 export async function openImage(path: unknown): Promise<{ stream: ReadStream; type: string; size: number }> {
-  const file = await resolveInData(path);
+  return imageAt(await resolveInData(path));
+}
+
+/**
+ * Opens a picture in a chat's folder, by its path from there. This works for
+ * chats in any folder, including those outside the data directory.
+ */
+export async function openChatImage(cwd: string, path: unknown): Promise<{ stream: ReadStream; type: string; size: number }> {
+  if (typeof path !== 'string' || !path || path.includes('\0') || path.length > 4096) throw new FileError(400, 'That is not a path.');
+  const target = resolve(cwd, path.replace(/^[/\\]+/, ''));
+  if (!insideDir(target, cwd)) throw new FileError(403, "That is outside the chat's folder.");
+  let real: string;
+  try {
+    real = await realpath(target);
+  } catch {
+    throw new FileError(404, 'That file does not exist.');
+  }
+  if (!insideDir(real, await realpath(cwd))) throw new FileError(403, "That leads outside the chat's folder.");
+  return imageAt(real);
+}
+
+async function imageAt(file: string): Promise<{ stream: ReadStream; type: string; size: number }> {
   const type = IMAGE_TYPES[extname(file).toLowerCase()];
   if (!type) throw new FileError(415, 'Only pictures can be shown this way.');
   const info = await stat(file);

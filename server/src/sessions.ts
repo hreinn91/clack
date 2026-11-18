@@ -45,7 +45,7 @@ import { rememberTools } from './capabilities.ts';
 import { gitStatus } from './git.ts';
 import { TaskBoard } from './tasks.ts';
 import { config } from './config.ts';
-import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideSessions, isFolder, recreateFolder, removeFolder } from './folders.ts';
+import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideRoots, isFolder, recreateFolder, removeFolder, removeRoot } from './folders.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
 import { projectDirName, relocateTranscript } from './relocate.ts';
@@ -845,7 +845,7 @@ export function openSession(sessionId: string): Promise<LiveSession> {
 async function loadFromDisk(sessionId: string): Promise<LiveSession> {
   const info = await getSessionInfo(sessionId);
   // Sessions from anywhere else on this computer are treated as if they did not exist.
-  if (!info?.cwd || !insideSessions(info.cwd)) throw new Error('Session not found');
+  if (!info?.cwd || !insideRoots(info.cwd)) throw new Error('Session not found');
   const [messages, efforts] = await Promise.all([getSessionMessages(sessionId), readEfforts(sessionId)]);
   const session = new LiveSession({
     sessionId,
@@ -868,7 +868,7 @@ function currentCwd(sessionId: string, recorded: string): string {
   const moved = movedFolder(sessionId);
   if (!moved) return recorded;
   const cwd = resolve(config.sessionsDir, moved);
-  return insideSessions(cwd) ? cwd : recorded;
+  return insideRoots(cwd) ? cwd : recorded;
 }
 
 /** Trims a title someone typed to something that fits on a line. */
@@ -945,6 +945,23 @@ export async function deleteFolder(name: unknown): Promise<void> {
   bus.emit('sessions_changed');
 }
 
+/**
+ * Takes a folder outside data/sessions off clack's list. Its files stay. Not
+ * while a chat working there is busy. Its chats leave the sidebar, and come
+ * back if the folder is added again.
+ */
+export async function forgetRoot(path: unknown): Promise<void> {
+  if (typeof path !== 'string') throw new Error('Which folder?');
+  const inside = [...live.values()].filter((session) => insideDir(session.cwd, path));
+  if (inside.some((session) => session.state === 'running' || session.hasPending || session.hasBackgroundWork)) {
+    throw new Error('A chat in this folder is still working. Stop it or wait for it to finish first.');
+  }
+  removeRoot(path);
+  await Promise.all(inside.map((session) => session.stopProcess()));
+  for (const session of inside) live.delete(session.sessionId);
+  bus.emit('sessions_changed');
+}
+
 export async function listSummaries(): Promise<SessionSummary[]> {
   // Claude Code keeps every session on this computer in one place; only the
   // ones that ran inside data/sessions belong to clack.
@@ -952,7 +969,7 @@ export async function listSummaries(): Promise<SessionSummary[]> {
   const seen = new Set<string>();
   const summaries: SessionSummary[] = [];
   for (const info of infos) {
-    if (!info.cwd || !insideSessions(info.cwd)) continue;
+    if (!info.cwd || !insideRoots(info.cwd)) continue;
     seen.add(info.sessionId);
     const open = live.get(info.sessionId);
     const cwd = open?.cwd ?? currentCwd(info.sessionId, info.cwd);

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { SessionSummary } from '../../../shared/protocol';
-  import { ago, folderPath } from '../lib/format';
+  import type { FolderInfo, FolderRoot } from '../../../shared/protocol';
+  import { ago, folderPath, folderPlace, isOutside, within } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import ActionMenu from './ActionMenu.svelte';
 
@@ -55,9 +56,16 @@
   /** Put away by hand, or left without a folder when it was deleted. */
   const away = (chat: SessionSummary) => chat.archived || chat.missing;
 
-  const tree = $derived.by(() => {
-    const root: Node = { path: '', name: '', depth: -1, chats: [], children: [], total: 0, recent: 0 };
-    const nodes = new Map<string, Node>([['', root]]);
+  /** Which tree a folder belongs to: an added outside folder's path, or '' for data/sessions. */
+  function treeOf(folder: string): string | undefined {
+    if (!isOutside(folder)) return '';
+    return app.roots.find((root) => within(folder, root.path))?.path;
+  }
+
+  /** The tree of one root: data/sessions ('') or an added outside folder (its absolute path). */
+  function build(top: string): Node {
+    const root: Node = { path: top, name: '', depth: -1, chats: [], children: [], total: 0, recent: 0 };
+    const nodes = new Map<string, Node>([[top, root]]);
     const ensure = (path: string): Node => {
       const known = nodes.get(path);
       if (known) return known;
@@ -68,9 +76,9 @@
       nodes.set(path, node);
       return node;
     };
-    for (const folder of app.folders) ensure(folder.name);
+    for (const folder of app.folders) if (treeOf(folder.name) === top) ensure(folder.name);
     // A chat's folder can be missing from the list (it is cut short in huge projects), so chats add their own.
-    for (const chat of app.sessions) if (!away(chat)) ensure(chat.folder).chats.push(chat);
+    for (const chat of app.sessions) if (!away(chat) && treeOf(chat.folder) === top) ensure(chat.folder).chats.push(chat);
 
     const finish = (node: Node) => {
       for (const child of node.children) finish(child);
@@ -82,7 +90,11 @@
     };
     finish(root);
     return root;
-  });
+  }
+
+  const tree = $derived(build(''));
+  /** The added outside folders, each with its tree. */
+  const outsideTrees = $derived(app.roots.map((root) => ({ root, tree: build(root.path) })));
 
   /** While searching: the folders whose name matches, or that hold a matching chat, with the way down to them. */
   function filter(node: Node): Node | null {
@@ -93,7 +105,14 @@
     return { ...node, chats, children };
   }
 
-  const shown = $derived(query ? tree.children.map(filter).filter((node) => node !== null) : tree.children);
+  /** What a tree shows: everything, or while searching only what matches. */
+  function shownIn(top: Node): { chats: SessionSummary[]; children: Node[] } | null {
+    if (!query) return top;
+    const found = filter(top);
+    return found && (found.chats.length || found.children.length) ? found : null;
+  }
+
+  const shown = $derived(shownIn(tree)?.children ?? []);
 
   function isOpen(node: Node): boolean {
     if (query) return true;
@@ -106,6 +125,22 @@
   function toggleRoot() {
     opened[''] = !rootOpen;
     remember();
+  }
+
+  /** An added outside folder's tree: open unless folded by hand. */
+  function outsideOpen(root: FolderRoot): boolean {
+    return query !== '' || (opened[root.path] ?? true);
+  }
+
+  function toggleOutside(root: FolderRoot) {
+    opened[root.path] = !outsideOpen(root);
+    remember();
+  }
+
+  /** "~/code/" and "site" for ~/code/site, so the name can stand out. */
+  function splitLabel(label: string): { pre: string; name: string } {
+    const cut = label.lastIndexOf('/');
+    return cut === -1 ? { pre: '', name: label } : { pre: label.slice(0, cut + 1), name: label.slice(cut + 1) };
   }
 
   function toggle(node: Node) {
@@ -201,6 +236,25 @@
   {/if}
 {/snippet}
 
+{#snippet repoBadge(repo: FolderInfo)}
+  <span class="repo" aria-label={`Git repository${repo.branch ? `, on branch ${repo.branch}` : ''}`}>
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+      <circle cx="4.5" cy="3.5" r="1.75" />
+      <circle cx="4.5" cy="12.5" r="1.75" />
+      <circle cx="11.5" cy="5.5" r="1.75" />
+      <path d="M4.5 5.25v5.5M11.5 7.25c0 2.5-2.5 3-6 3.75" />
+    </svg>
+    {#if repo.branch}<span class="branch">{repo.branch}</span>{/if}
+  </span>
+{/snippet}
+
+{#snippet newChatIcon()}
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M8.5 2.75H4A1.75 1.75 0 0 0 2.25 4.5v5.25c0 .97.78 1.75 1.75 1.75h1v2.25l3-2.25h3A1.75 1.75 0 0 0 12.75 9.75V7.5" />
+    <path d="M12.25 1.5v4.5M10 3.75h4.5" />
+  </svg>
+{/snippet}
+
 {#snippet newFolderIcon()}
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M8 13H3c-.7 0-1.25-.55-1.25-1.25v-7.5C1.75 3.55 2.3 3 3 3h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25V8" />
@@ -254,7 +308,7 @@
     {#if createError}
       <p class="hint error" role="alert">{createError}</p>
     {:else if newPath}
-      <p class="hint">data/sessions/{creating ? `${creating}/` : ''}<strong>{newPath}</strong> · Enter to create</p>
+      <p class="hint">{creating ? `${folderPlace(creating, app.home)}/` : 'data/sessions/'}<strong>{newPath}</strong> · Enter to create</p>
     {/if}
   </li>
 {/snippet}
@@ -275,25 +329,15 @@
       <button
         class="name"
         aria-expanded={open}
-        title={`data/sessions/${node.path}${repo ? `\nGit repository${repo.branch ? `, on ${repo.branch}` : ''}` : ''}${own ? `\n${node.chats.length} chat${node.chats.length === 1 ? '' : 's'} work here` : ''}`}
+        title={`${folderPlace(node.path, app.home)}${repo ? `\nGit repository${repo.branch ? `, on ${repo.branch}` : ''}` : ''}${own ? `\n${node.chats.length} chat${node.chats.length === 1 ? '' : 's'} work here` : ''}`}
         onclick={() => toggle(node)}
       >
         <svg class="chevron" class:open width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
           <path d="M3 1.5 7.5 5 3 8.5z" />
         </svg>
         {@render folderIcon(own)}
+        {#if repo}{@render repoBadge(repo)}{/if}
         <span class="label">{node.name}</span>
-        {#if repo}
-          <span class="repo" aria-label={`Git repository${repo.branch ? `, on branch ${repo.branch}` : ''}`}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
-              <circle cx="4.5" cy="3.5" r="1.75" />
-              <circle cx="4.5" cy="12.5" r="1.75" />
-              <circle cx="11.5" cy="5.5" r="1.75" />
-              <path d="M4.5 5.25v5.5M11.5 7.25c0 2.5-2.5 3-6 3.75" />
-            </svg>
-            {#if repo.branch}<span class="branch">{repo.branch}</span>{/if}
-          </span>
-        {/if}
         {#if own}
           <span class="count" aria-label={`${node.chats.length} chats`}>{node.chats.length}</span>
         {:else if !open && node.total}
@@ -301,10 +345,7 @@
         {/if}
       </button>
       <button class="tool" aria-label={`New chat in ${node.path}`} title="New chat in this folder" onclick={() => void app.newSession(node.path)}>
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M8.5 2.75H4A1.75 1.75 0 0 0 2.25 4.5v5.25c0 .97.78 1.75 1.75 1.75h1v2.25l3-2.25h3A1.75 1.75 0 0 0 12.75 9.75V7.5" />
-          <path d="M12.25 1.5v4.5M10 3.75h4.5" />
-        </svg>
+        {@render newChatIcon()}
       </button>
       <button class="tool" aria-label={`New folder in ${node.path}`} title="New folder inside this one" onclick={() => void startCreate(node.path)}>
         {@render newFolderIcon()}
@@ -379,6 +420,78 @@
         </ul>
       {/if}
     </li>
+
+    <!-- Each folder added from elsewhere on this computer has a tree of its own. -->
+    {#each outsideTrees as { root, tree: top } (root.path)}
+      {@const view = query && root.label.toLowerCase().includes(query) ? top : shownIn(top)}
+      {#if view}
+        {@const open = outsideOpen(root)}
+        {@const label = splitLabel(root.label)}
+        {@const repo = repos.get(root.path)}
+        <li class="outside">
+          <div
+            class="folder root"
+            class:quiet={top.total === 0}
+            class:active={root.path === openFolder}
+            class:fresh={root.path === fresh}
+            class:gone={root.missing}
+            style:--depth={-1}
+          >
+            <button
+              class="name"
+              aria-expanded={open}
+              title={`${root.path}\nA folder added from this computer${repo ? `\nGit repository${repo.branch ? `, on ${repo.branch}` : ''}` : ''}${root.missing ? '\nIt is not there any more' : ''}`}
+              onclick={() => toggleOutside(root)}
+            >
+              <svg class="chevron" class:open width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+                <path d="M3 1.5 7.5 5 3 8.5z" />
+              </svg>
+              <!-- A folder with an arrow out of it: it lives elsewhere on this computer. -->
+              <svg class="icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M8 13H3c-.7 0-1.25-.55-1.25-1.25v-7.5C1.75 3.55 2.3 3 3 3h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25V7.5" />
+                <path d="M10.5 13.5l4-4M11.5 9.5h3v3" />
+              </svg>
+              {#if repo}{@render repoBadge(repo)}{/if}
+              <span class="label">{label.name}{#if label.pre}<span class="pre in">{label.pre.replace(/\/$/, '')}</span>{/if}</span>
+              {#if !open && top.total}
+                <span class="count below" aria-label={`${top.total} chats inside`}>{top.total}</span>
+              {/if}
+            </button>
+            {#if !root.missing}
+              <button class="tool" aria-label={`New chat in ${root.label}`} title="New chat in this folder" onclick={() => void app.newSession(root.path)}>
+                {@render newChatIcon()}
+              </button>
+              <button class="tool" aria-label={`New folder in ${root.label}`} title="New folder inside this one" onclick={() => void startCreate(root.path)}>
+                {@render newFolderIcon()}
+              </button>
+            {/if}
+            <button class="tool" aria-label={`Remove ${root.label} from clack`} title="Remove from clack (the files stay)" onclick={() => (app.removingRoot = root)}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+              </svg>
+            </button>
+          </div>
+          {#if open}
+            <ul class="kids" style:--depth={-1}>
+              {#each view.chats as chat (chat.sessionId)}
+                {@render chatRow(chat, 0)}
+              {/each}
+              {#if creating === root.path}
+                {@render newFolderRow(0)}
+              {/if}
+              {#each view.children as node (node.path)}
+                {@render folderRow(node)}
+              {/each}
+              {#if root.missing}
+                <li class="none" style:--depth={0}>This folder is not there any more.</li>
+              {:else if !view.chats.length && !view.children.length && creating !== root.path}
+                <li class="none" style:--depth={0}>No chats here yet</li>
+              {/if}
+            </ul>
+          {/if}
+        </li>
+      {/if}
+    {/each}
   </ul>
 
   {#if !query}
@@ -386,6 +499,17 @@
       <span class="plus" aria-hidden="true">+</span>
       <span class="label">New chat</span>
     </a>
+    {#if app.outsideFolders}
+      <a class="new" href="#/new-elsewhere" title="Pick a folder anywhere on this computer for chats to work in">
+        <span class="plus" aria-hidden="true">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 13H3c-.7 0-1.25-.55-1.25-1.25v-7.5C1.75 3.55 2.3 3 3 3h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25V7.5" />
+            <path d="M10.5 13.5l4-4M11.5 9.5h3v3" />
+          </svg>
+        </span>
+        <span class="label">Add a folder from this computer</span>
+      </a>
+    {/if}
   {/if}
 </section>
 
@@ -493,6 +617,23 @@
 
   .root .name {
     font-weight: 800;
+  }
+
+  /* Where an added folder is, after its name, quieter and cut short first. */
+  .pre.in {
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  /* An added outside folder's tree sits a little apart from the one above it. */
+  .tree > .outside {
+    margin-top: 6px;
+  }
+
+  .folder.root.gone .label {
+    text-decoration: line-through;
+    opacity: 0.7;
   }
 
   .pre {
@@ -638,7 +779,7 @@
     align-items: center;
     gap: 3px;
     min-width: 0;
-    max-width: 45%;
+    max-width: 40%;
     padding: 0 6px 0 5px;
     border: 1px solid var(--chrome-tile);
     border-radius: 999px;
@@ -806,6 +947,10 @@
 
   .new:hover {
     background: var(--chrome-hover);
+  }
+
+  .new + .new {
+    margin-top: 0;
   }
 
   .plus {

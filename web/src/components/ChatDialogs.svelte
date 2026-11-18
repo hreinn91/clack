@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { folderPlace, within as inside } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import FolderFinder from './FolderFinder.svelte';
   import Modal from './Modal.svelte';
@@ -44,7 +45,7 @@
   // ---- deleting a folder from the chat tree ----
 
   const folder = $derived(app.deletingFolder);
-  const within = (path: string) => folder !== null && (path === folder || path.startsWith(`${folder}/`));
+  const within = (path: string) => folder !== null && inside(path, folder);
   /** The chats that work in the folder, or in one inside it. They stay, but lose their folder. */
   const folderChats = $derived(app.sessions.filter((chat) => !chat.missing && within(chat.folder)));
   const subfolders = $derived(app.folders.filter((entry) => entry.name !== folder && within(entry.name)).length);
@@ -68,6 +69,36 @@
     try {
       await app.deleteFolder(folder);
       app.deletingFolder = null;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  // ---- taking an added outside folder off the list ----
+
+  const root = $derived(app.removingRoot);
+  const rootChats = $derived(root ? app.sessions.filter((chat) => inside(chat.folder, root.path)).length : 0);
+
+  $effect(() => {
+    if (root === null) return;
+    error = '';
+    busy = false;
+  });
+
+  function closeRoot() {
+    if (!busy) app.removingRoot = null;
+  }
+
+  async function forget(event: SubmitEvent) {
+    event.preventDefault();
+    if (root === null || busy) return;
+    busy = true;
+    error = '';
+    try {
+      await app.removeRoot(root.path);
+      app.removingRoot = null;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -133,7 +164,7 @@
     <form onsubmit={removeFolder}>
       <h2>Delete this folder?</h2>
       <p>
-        <code>data/sessions/{folder}</code> and everything in it{subfolders
+        <code>{folderPlace(folder, app.home)}</code> and everything in it{subfolders
           ? `, including ${subfolders} folder${subfolders === 1 ? '' : 's'} inside it,`
           : ''} will be deleted for good. The files cannot be brought back.
       </p>
@@ -152,6 +183,31 @@
         <!-- The keyboard starts on Cancel, so a stray Enter deletes nothing. -->
         <button type="button" class="btn" data-autofocus="" onclick={closeFolder} disabled={busy}>Cancel</button>
         <button class="btn delete" disabled={busy || busyChat}>Delete folder</button>
+      </div>
+    </form>
+  </Modal>
+{/if}
+
+{#if root !== null}
+  <Modal title="Remove folder" onclose={closeRoot}>
+    <form onsubmit={forget}>
+      <h2>Remove this folder from clack?</h2>
+      <p>
+        <code>{root.label}</code> leaves the sidebar, and new chats can no longer work in it. Nothing in the folder is
+        deleted or changed.
+      </p>
+      {#if rootChats}
+        <p>
+          {rootChats === 1 ? 'Its 1 chat leaves' : `Its ${rootChats} chats leave`} the sidebar too. Add the folder again
+          to get {rootChats === 1 ? 'it' : 'them'} back.
+        </p>
+      {/if}
+
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
+
+      <div class="actions">
+        <button type="button" class="btn" data-autofocus="" onclick={closeRoot} disabled={busy}>Cancel</button>
+        <button class="btn primary" disabled={busy}>Remove</button>
       </div>
     </form>
   </Modal>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { folderPlace } from '../lib/format';
   import { app } from '../lib/state.svelte';
 
   // Where the chat works, written like a shell prompt (spaceship and its
@@ -10,7 +11,7 @@
   const folder = $derived(meta?.folder ?? '');
   /** Deep paths keep their last two parts, as prompts usually do. */
   const shown = $derived.by(() => {
-    const parts = folder.split('/');
+    const parts = folderPlace(folder, app.home).replace(/^data\/sessions\//, '').split('/');
     return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : folder;
   });
   const branch = $derived(meta?.gitBranch);
@@ -20,8 +21,8 @@
 
   const title = $derived(
     app.running
-      ? `Works in data/sessions/${folder}. The folder can be changed once Claude has finished.`
-      : `Works in data/sessions/${folder}${branch ? `, on git branch ${branch}${dirty ? ', with uncommitted changes' : ''}` : ''}${gone ? ' (deleted)' : ''}. Click to change the folder.`,
+      ? `Works in ${folderPlace(folder, app.home)}. The folder can be changed once Claude has finished.`
+      : `Works in ${folderPlace(folder, app.home)}${branch ? `, on git branch ${branch}${dirty ? ', with uncommitted changes' : ''}` : ''}${gone ? ' (deleted)' : ''}. Click to change the folder.`,
   );
 </script>
 

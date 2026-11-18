@@ -1,6 +1,7 @@
 <script lang="ts">
   import { folderPath } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import FolderBrowser from './FolderBrowser.svelte';
   import FolderFinder from './FolderFinder.svelte';
   import Picker from './Picker.svelte';
 
@@ -8,7 +9,7 @@
 
   // A chat always works in a folder. This page is about choosing it: a new
   // one, created in the tree, or one that is already there.
-  type Mode = 'create' | 'existing';
+  type Mode = 'create' | 'existing' | 'elsewhere';
 
   const TOP = '';
 
@@ -69,6 +70,35 @@
     mode = next;
   }
 
+  /** What happened to the last folder added without a chat, so the page can say so. */
+  let added = $state('');
+
+  /** Adds a folder from elsewhere on this computer, then starts a chat in it. */
+  async function startElsewhere(path: string) {
+    starting = true;
+    app.error = null;
+    try {
+      await app.newSession(await app.addRoot(path));
+    } catch (err) {
+      app.error = err instanceof Error ? err.message : String(err);
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function addElsewhere(path: string) {
+    starting = true;
+    app.error = null;
+    try {
+      const real = await app.addRoot(path);
+      added = `${real} is in the sidebar now, with its own tree.`;
+    } catch (err) {
+      app.error = err instanceof Error ? err.message : String(err);
+    } finally {
+      starting = false;
+    }
+  }
+
   $effect(() => {
     void app.loadFolders();
   });
@@ -78,6 +108,7 @@
   $effect(() => {
     offered = app.route.name === 'new' ? app.route.folder : undefined;
     if (offered) mode = 'existing';
+    else if (app.route.name === 'new' && app.route.elsewhere && app.outsideFolders) mode = 'elsewhere';
   });
 
   // Ready to type straight away, except on a touch screen where that would throw up the keyboard.
@@ -107,7 +138,7 @@
       <h2>Where should Claude work?</h2>
       <p>
         Every chat works in a folder of its own, and Claude can only touch the files inside it. Start with a fresh folder,
-        or carry on in one you already have.
+        carry on in one you already have{app.outsideFolders ? ', or pick one anywhere on this computer' : ''}.
       </p>
     </div>
 
@@ -129,6 +160,18 @@
           <small>{app.pickableFolders.length ? `${app.pickableFolders.length} to choose from` : 'None yet'}</small>
         </span>
       </button>
+      {#if app.outsideFolders}
+        <button role="radio" aria-checked={mode === 'elsewhere'} class:on={mode === 'elsewhere'} onclick={() => choose('elsewhere')}>
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 13H3c-.7 0-1.25-.55-1.25-1.25v-7.5C1.75 3.55 2.3 3 3 3h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25V7.5" />
+            <path d="M10.5 13.5l4-4M11.5 9.5h3v3" />
+          </svg>
+          <span>
+            <strong>On this computer</strong>
+            <small>Any folder, outside data/sessions</small>
+          </span>
+        </button>
+      {/if}
     </div>
 
     {#if mode === 'create'}
@@ -190,6 +233,11 @@
           </button>
         </div>
       </form>
+    {:else if mode === 'elsewhere'}
+      <div class="card">
+        <FolderBrowser busy={starting} onstart={(path) => void startElsewhere(path)} onadd={(path) => void addElsewhere(path)} />
+        {#if added}<p class="added" role="status">{added}</p>{/if}
+      </div>
     {:else}
       <div class="card">
         {#if app.folders.length}
@@ -247,7 +295,7 @@
   /* The two ways to go, as cards side by side. */
   .modes {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 10px;
   }
 
@@ -471,6 +519,12 @@
   .error {
     margin: 0;
     color: var(--danger);
+  }
+
+  .added {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
   }
 
   @media (max-width: 520px) {

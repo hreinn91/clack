@@ -7,7 +7,9 @@ import type {
   Capabilities,
   ContextDetail,
   GitStatus,
+  BrowseListing,
   FolderInfo,
+  FolderRoot,
   Item,
   LogEntry,
   LogPage,
@@ -25,10 +27,10 @@ import type {
   Upload,
 } from '../../../shared/protocol';
 import { api, ApiError } from './api';
-import { authorName, withEffort } from './format';
+import { authorName, isOutside, within, withEffort } from './format';
 
 export type Route =
-  | { name: 'new'; folder?: string }
+  | { name: 'new'; folder?: string; elsewhere?: boolean }
   | { name: 'session'; id: string }
   | { name: 'debug'; tab: 'log' }
   | { name: 'data' }
@@ -45,12 +47,16 @@ function parseRoute(): Route {
   if (location.hash === '#/theme') return { name: 'theme' };
   if (location.hash === '#/usage') return { name: 'usage' };
   if (location.hash === '#/tools') return { name: 'tools' };
+  // The new-chat page, opened on picking a folder anywhere on this computer.
+  if (location.hash === '#/new-elsewhere') return { name: 'new', elsewhere: true };
   // A folder picked in the sidebar: the new-chat page opens with it filled in.
   // Any name a folder in the tree can have ("MyRepo", "my_project"), but nothing hidden or stepping up.
   const folder = location.hash.match(/^#\/new\/(.+)$/);
   const path = folder ? safeDecode(folder[1]!) : '';
   const parts = path.split('/');
-  const plain = path !== '' && parts.length <= 8 && parts.every((part) => part !== '' && !part.startsWith('.') && !part.includes('\\'));
+  // An absolute path is a folder in an added outside folder; the server checks it is one.
+  const rest = isOutside(path) ? parts.slice(1) : parts;
+  const plain = path !== '' && rest.every((part) => part !== '' && part !== '.' && part !== '..' && !part.includes('\\'));
   return plain ? { name: 'new', folder: path } : { name: 'new' };
 }
 
@@ -97,13 +103,17 @@ class AppState {
   paletteOpen = $state(false);
   /** A question about one chat that is waiting for an answer: its new name, its new folder, or whether to delete it. */
   dialog = $state<{ kind: 'rename' | 'move' | 'delete'; session: SessionSummary } | null>(null);
-  /** A folder in the chat tree waiting for its deletion to be confirmed: its path from data/sessions. */
+  /** A folder in the chat tree waiting for its deletion to be confirmed: its name, as the tree has it. */
   deletingFolder = $state<string | null>(null);
+  /** An added outside folder waiting for its removal from clack to be confirmed. */
+  removingRoot = $state<FolderRoot | null>(null);
   /** The sidebar's width in pixels, and whether it is tucked away to leave the page more room. */
   sidebarWidth = $state(savedSidebar().width);
   sidebarHidden = $state(savedSidebar().hidden);
   sessions = $state<SessionSummary[]>([]);
   folders = $state<FolderInfo[]>([]);
+  /** Folders outside data/sessions that were added, each with its own tree. */
+  roots = $state<FolderRoot[]>([]);
   /** Empty until Claude Code has been asked which models this account can use. */
   models = $state<ModelOption[]>([]);
   connected = $state(false);
@@ -122,6 +132,10 @@ class AppState {
   dataDir = $state('');
   /** Whether this server lets the UI open terminals. */
   terminalEnabled = $state(false);
+  /** Whether chats may work in folders outside data/sessions on this server. */
+  outsideFolders = $state(false);
+  /** The server account's home folder, so paths in it can be shown as ~/…. */
+  home = $state('');
   /** Folder listings loaded so far, by path relative to the data directory ('' is the directory itself). */
   tree = $state<Record<string, FileListing>>({});
   /** Which folders are unfolded in the tree. */
@@ -245,7 +259,7 @@ class AppState {
 
   async loadFolders(): Promise<void> {
     try {
-      this.folders = await api<FolderInfo[]>('/api/folders');
+      [this.folders, this.roots] = await Promise.all([api<FolderInfo[]>('/api/folders'), api<FolderRoot[]>('/api/roots')]);
     } catch (err) {
       this.#fail(err);
     }
@@ -324,13 +338,32 @@ class AppState {
     return name;
   }
 
-  /** Deletes a folder under data/sessions and everything in it. Throws, so the dialog can say what went wrong. */
+  /** Folders on the server computer, for the picker. Throws, so the picker can say what went wrong. */
+  async browse(path?: string): Promise<BrowseListing> {
+    return api<BrowseListing>(`/api/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`);
+  }
+
+  /** Adds a folder outside data/sessions and returns its real path, where a chat can start. Throws, so the picker can say what went wrong. */
+  async addRoot(path: string): Promise<string> {
+    const { path: real } = await api<{ path: string }>('/api/roots', { path });
+    await this.loadFolders();
+    return real;
+  }
+
+  /** Takes an added folder off the list; its files stay. Throws, so the dialog can say what went wrong. */
+  async removeRoot(path: string): Promise<void> {
+    await api('/api/roots', { path }, 'DELETE');
+    if (this.route.name === 'new' && this.route.folder && within(this.route.folder, path)) location.hash = '#/new';
+    // The open chat worked in it: it is no longer one clack has.
+    if (this.sessionId && this.meta && within(this.meta.folder, path)) location.hash = '#/new';
+    await Promise.all([this.loadSessions(), this.loadFolders()]);
+  }
+
+  /** Deletes a chat folder and everything in it. Throws, so the dialog can say what went wrong. */
   async deleteFolder(path: string): Promise<void> {
     await api('/api/folders', { path }, 'DELETE');
     // A new-chat page offering that folder would offer one that is gone.
-    if (this.route.name === 'new' && this.route.folder && (this.route.folder === path || this.route.folder.startsWith(`${path}/`))) {
-      location.hash = '#/new';
-    }
+    if (this.route.name === 'new' && this.route.folder && within(this.route.folder, path)) location.hash = '#/new';
     await Promise.all([this.loadSessions(), this.loadFolders()]);
   }
 
@@ -341,8 +374,9 @@ class AppState {
    */
   get pickableFolders(): FolderInfo[] {
     const used = new Set(this.sessions.map((chat) => chat.folder));
+    const roots = new Set(this.roots.map((root) => root.path));
     return this.folders
-      .filter((folder) => !folder.name.includes('/') || used.has(folder.name))
+      .filter((folder) => (!isOutside(folder.name) && !folder.name.includes('/')) || roots.has(folder.name) || used.has(folder.name))
       .sort((a, b) => b.modified - a.modified);
   }
 
@@ -518,6 +552,8 @@ class AppState {
       if (me.name) this.userName = me.name;
       this.dataDir = me.dataDir ?? '';
       this.terminalEnabled = me.terminal === true;
+      this.outsideFolders = me.outsideFolders === true;
+      this.home = me.home ?? '';
       if (me.authed) {
         this.#connect();
         void this.loadSessions();

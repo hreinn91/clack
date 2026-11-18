@@ -302,6 +302,33 @@ export type FolderInfo = {
   branch?: string;
 };
 
+/** A folder outside data/sessions that was added to clack: chats can work in it and below it, and it has its own tree. */
+export type FolderRoot = {
+  /** The real, absolute path. Folders and chats in it use absolute paths as their names. */
+  path: string;
+  /** The path for showing, with the home folder as ~ ("~/code/site"). */
+  label: string;
+  /** The folder is no longer there (deleted, renamed, or a disk that is not mounted). */
+  missing: boolean;
+};
+
+/** One folder of the server computer, as the folder picker shows it: the folders inside it. */
+export type BrowseListing = {
+  path: string;
+  label: string;
+  /** The folder it is in; null at the top of the disk. */
+  parent: string | null;
+  home: string;
+  entries: { name: string; repo: boolean }[];
+  truncated: boolean;
+  repo: boolean;
+  branch?: string;
+  /** Chats can already work here: it is an added folder or inside one. */
+  added: boolean;
+  /** Inside clack's own data directory, which cannot be added. */
+  inData: boolean;
+};
+
 /** One file or folder under the data directory. */
 export type FileEntry = { name: string; kind: 'dir' | 'file'; size: number; modified: number };
 
@@ -344,4 +371,4 @@ export type TerminalServerMessage = { t: 'out'; data: string } | { t: 'exit'; co
  * own messages are signed with, where the data directory is on the server,
  * and whether the server offers terminals.
  */
-export type Me = { authed: boolean; name?: string; dataDir?: string; terminal?: boolean };
+export type Me = { authed: boolean; name?: string; dataDir?: string; terminal?: boolean; outsideFolders?: boolean; home?: string };

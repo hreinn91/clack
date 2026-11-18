@@ -197,7 +197,7 @@
         {#each attached as file, index (file.path)}
           <li>
             {#if isImagePath(file.path) && app.meta}
-              <img src={`/api/files/image?path=${encodeURIComponent(`sessions/${app.meta.folder}/${file.path}`)}`} alt="" />
+              <img src={`/api/sessions/${app.sessionId}/image?path=${encodeURIComponent(file.path)}`} alt="" />
             {:else}
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 1.75h5l3.25 3.25v8.25c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1v-10.5c0-.55.45-1 1-1z" />

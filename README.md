@@ -20,6 +20,8 @@ browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  
   message under the name of who sent it
 - Each chat works in its own folder under `data/sessions`, which you name when you start it.
   Folders can be nested, and the sidebar shows them as a tree
+- Or pick any folder on the computer, such as a project you already have; it gets a tree of
+  its own in the sidebar
 - Lists the chats started through clack and resumes them
 - Pick the model and effort level per chat
 - Attach pictures and documents to a message for Claude to look at
@@ -303,9 +305,10 @@ data/
   logs/
     clack-2026-11-14.jsonl  the activity log, one file per day
   preferences.json        the model and effort chosen for each chat
+  roots.json              the folders outside data/sessions that were added
 ```
 
-The **New chat** page asks where the chat should work, with two choices:
+The **New chat** page asks where the chat should work, with three choices:
 
 - **New folder** (the default): pick where it goes (the top level, or inside one of your
   folders) and type a name. A preview shows the folder tree with the new folder marked
@@ -318,9 +321,31 @@ The **New chat** page asks where the chat should work, with two choices:
   under `data/sessions`. With nothing typed it lists your top-level folders and the
   folders that have chats, with how many chats each has. Pick one to start. Folders you
   made yourself keep their names as they are (`MyRepo`, `my_project`, `site.com`).
+- **On this computer:** any folder outside `data/sessions`, such as a project you already
+  have. Walk the folders from your home folder (click a folder to go in, the arrow to go up,
+  the house for home), click a part of the path above the list, or type or paste a path
+  (`~/code/site`) and press Enter. Folders that are git repositories have a branch icon.
+  The folder you are in is the one picked: **Add folder and start chat** adds it and starts
+  a chat there, and **Add to sidebar** only adds it. The picker remembers where you were.
+  The **Add a folder from this computer** link under the chats tree opens it too.
 
-There is no way to start or resume a chat anywhere else from
-the UI, and Claude Code sessions from elsewhere on the computer are not listed.
+An added folder gets its own tree in the sidebar, below `data/sessions`, and chats can work
+in it and in any folder inside it. Claude is kept inside the chat's folder the same way as
+under `data/sessions`. A folder inside one already added just uses that one; a folder that
+holds folders added earlier takes their place. Picking a symlink adds the folder it points
+to. clack's own data directory cannot be added, and when an added folder holds it (clack's
+own code, say) it is left out of that folder's tree.
+
+Claude Code lists sessions by the folder they ran in, so chats you had in an added folder
+from the `claude` command line show up in its tree too, and can be carried on in clack.
+
+There is no way to start or resume a chat anywhere else from the UI, and Claude Code
+sessions from other folders on the computer are not listed. With `CLACK_OUTSIDE_FOLDERS=off`
+in `.env`, folders cannot be added (or browsed) at all, and chats stay in `data/sessions`.
+
+In Docker the picker shows the container's folders, not the host's. To work on a project
+on the host, mount it into the container in `docker-compose.yml` (under `volumes`) and add
+it from there.
 
 See [Security](#security) for what this limit does and does not guarantee.
 
@@ -419,8 +444,15 @@ every chat works in a folder in there. Hidden folders (such as `.git`) and
   folder with no chats anywhere inside it is dimmed. A folded folder with chats further
   down shows how many.
 - A folder that is the top of a git repository (it has a `.git` of its own) has a small
-  branch badge with the branch it is on, or the start of the commit's hash when it is
-  detached. While the row's buttons are showing only the icon stays, so the name has room.
+  branch badge, between the folder icon and the name, with the branch it is on, or the
+  start of the commit's hash when it is detached. While the row's buttons are showing only
+  the icon stays, so the name has room.
+- **Added folders** (from **On this computer**) each have a tree below `data/sessions`,
+  shown by their name with the path after it, dimmed. Hover the row for a new chat in the
+  folder itself, a new folder inside it, and **×** to remove it from clack, after asking.
+  Removing only takes it off the list: nothing in it is deleted, and its chats leave the
+  sidebar until it is added again. The folders inside it can be deleted like any other.
+  A folder that is no longer there is struck through.
 - Folders with chats come first, the most recently used at the top; the rest follow by
   name. Folders with chats start unfolded, the rest folded. Click a folder's name to fold
   or unfold it; the browser remembers it.
@@ -572,7 +604,10 @@ Anyone who can sign in can make Claude Code run commands on the server computer 
 
 ### What the folder limit covers
 
-- Chats can only be started and resumed in folders under `data/sessions`.
+- Chats can only be started and resumed in folders under `data/sessions`, or in folders
+  someone added from the UI (see [Where chats work](#where-chats-work)). Anyone who can sign
+  in can add one, and browse the names of folders on the computer to find it; set
+  `CLACK_OUTSIDE_FOLDERS=off` to stop that.
 - When Claude asks for permission to touch a path outside the chat's folder, the server
   refuses on its own and the UI never shows the request. This covers the file tools
   (read, edit, write, search) and shell commands where Claude Code can see the path,

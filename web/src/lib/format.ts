@@ -177,3 +177,19 @@ export function folderPath(typed: string): string {
     .slice(0, 8)
     .join('/');
 }
+
+/** True for a chat folder outside data/sessions, which is named by its absolute path. */
+export function isOutside(folder: string): boolean {
+  return folder.startsWith('/');
+}
+
+/** True when a folder name is `dir` or inside it. */
+export function within(folder: string, dir: string): boolean {
+  return folder === dir || folder.startsWith(dir.endsWith('/') ? dir : `${dir}/`);
+}
+
+/** Where a chat folder is, for showing: "data/sessions/work" or "~/code/site". */
+export function folderPlace(folder: string, home = ''): string {
+  if (!isOutside(folder)) return `data/sessions/${folder}`;
+  return home && within(folder, home) ? `~${folder.slice(home.length)}` : folder;
+}

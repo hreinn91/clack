@@ -52,6 +52,10 @@ export const config = {
   dataDir,
   /** The only place chats can run: each one works in a folder directly under this. */
   sessionsDir: join(dataDir, 'sessions'),
+  /** Folders outside data/sessions that chats may work in too, added from the UI. */
+  rootsFile: join(dataDir, 'roots.json'),
+  /** Whether folders outside data/sessions can be browsed and added. On unless CLACK_OUTSIDE_FOLDERS says otherwise. */
+  outsideFolders: !/^(0|off|false|no)$/i.test(process.env.CLACK_OUTSIDE_FOLDERS?.trim() ?? ''),
   /** Model and effort choices, remembered per chat. */
   prefsFile: join(dataDir, 'preferences.json'),
   /** Optional path to a `claude` binary; the SDK's bundled one is used otherwise. */

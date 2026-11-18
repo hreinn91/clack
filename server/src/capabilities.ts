@@ -4,7 +4,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerStatus, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Capabilities } from '../../shared/protocol.ts';
 import { config } from './config.ts';
-import { folderLabel, isFolder } from './folders.ts';
+import { existingFolder } from './folders.ts';
 
 // What Claude Code can use: asked of a short-lived Claude Code process started
 // in the folder, without sending it anything, so it costs no tokens. MCP
@@ -143,12 +143,11 @@ async function measure(cwd: string): Promise<Capabilities> {
 }
 
 /**
- * What Claude Code can use in a folder under data/sessions, or at its top
+ * What Claude Code can use in a chat folder (under data/sessions or an added one), or at the top of data/sessions
  * when `folder` is empty. `fresh` asks again instead of using a recent answer.
  */
 export async function capabilities(folder: string, fresh = false): Promise<Capabilities> {
-  const cwd = folder ? join(config.sessionsDir, ...folder.split('/')) : config.sessionsDir;
-  if (folder && (!isFolder(cwd) || folderLabel(cwd) !== folder)) throw new Error('There is no such folder.');
+  const cwd = folder ? await existingFolder(folder) : config.sessionsDir;
   const key = folder || '.';
   const kept = cache.get(key);
   if (!fresh && kept && (kept.at === undefined || Date.now() - kept.at < KEEP_MS)) return withTools(await kept, folder);

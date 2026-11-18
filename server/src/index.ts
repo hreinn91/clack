@@ -1,14 +1,18 @@
 import { existsSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
+import type { ReadStream } from 'node:fs';
+import { homedir, networkInterfaces } from 'node:os';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
+import type { FastifyReply } from 'fastify';
 import type {
   Capabilities,
   ContextDetail,
   FileListing,
   FilePreview,
+  BrowseListing,
   FolderInfo,
+  FolderRoot,
   LogPage,
   Me,
   ModelOption,
@@ -18,13 +22,13 @@ import type {
 } from '../../shared/protocol.ts';
 import { isAuthed, login, logout, sameOrigin } from './auth.ts';
 import { config, tokenFile } from './config.ts';
-import { FileError, listDir, openImage, previewFile } from './files.ts';
+import { FileError, listDir, openChatImage, openImage, previewFile } from './files.ts';
 import { MAX_UPLOAD_BYTES, saveUpload } from './uploads.ts';
 import { capabilities } from './capabilities.ts';
-import { ensureFolder, folderLabel, listFolders } from './folders.ts';
+import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
 import { listModels } from './models.ts';
-import { bus, contextDetail, createSession, deleteChat, deleteFolder, gitDetail, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
+import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
 import { planUsage } from './usage.ts';
 import { registerWs } from './ws.ts';
@@ -48,7 +52,7 @@ app.addHook('onRequest', async (req, reply) => {
 app.get('/api/me', async (req): Promise<Me> => {
   // The name is the server account's by default, so it is kept from anyone not signed in.
   return isAuthed(req)
-    ? { authed: true, name: config.userName, dataDir: config.dataDir, terminal: config.terminal }
+    ? { authed: true, name: config.userName, dataDir: config.dataDir, terminal: config.terminal, outsideFolders: config.outsideFolders, home: homedir() }
     : { authed: false };
 });
 
@@ -131,6 +135,39 @@ app.delete('/api/sessions/:id', async (req, reply) => {
 
 app.get('/api/folders', async (): Promise<FolderInfo[]> => listFolders());
 
+// Folders outside data/sessions that chats can work in, each with its own tree in the sidebar.
+app.get('/api/roots', async (): Promise<FolderRoot[]> => listRoots());
+
+// Adds one. The answer is where a chat started from the picker works: the folder's real path.
+app.post('/api/roots', async (req, reply) => {
+  try {
+    const path = await addRoot((req.body as { path?: unknown } | null)?.path);
+    bus.emit('sessions_changed');
+    return { path };
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'That folder could not be added.' });
+  }
+});
+
+// Takes one off the list. Its files are not touched.
+app.delete('/api/roots', async (req, reply) => {
+  try {
+    await forgetRoot((req.body as { path?: unknown } | null)?.path);
+    return { ok: true };
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'That folder could not be removed.' });
+  }
+});
+
+// The folders inside one folder of the server computer, for the picker that adds outside folders.
+app.get('/api/browse', async (req, reply): Promise<BrowseListing | undefined> => {
+  try {
+    return await browse((req.query as { path?: string }).path);
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'That folder could not be read.' });
+  }
+});
+
 // Deletes a folder under data/sessions, with everything in it. The path is the one the chat tree shows ("work/MyRepo").
 app.delete('/api/folders', async (req, reply) => {
   try {
@@ -194,8 +231,7 @@ app.get('/api/files', async (req): Promise<FileListing> => listDir(pathOf(req)))
 
 app.get('/api/files/preview', async (req): Promise<FilePreview> => previewFile(pathOf(req)));
 
-app.get('/api/files/image', async (req, reply) => {
-  const image = await openImage(pathOf(req));
+function sendImage(reply: FastifyReply, image: { stream: ReadStream; type: string; size: number }) {
   return (
     reply
       .header('content-type', image.type)
@@ -206,6 +242,19 @@ app.get('/api/files/image', async (req, reply) => {
       .header('content-security-policy', "sandbox; default-src 'none'")
       .send(image.stream)
   );
+}
+
+app.get('/api/files/image', async (req, reply) => sendImage(reply, await openImage(pathOf(req))));
+
+// A picture in a chat's folder, by its path from there: attachments, wherever the chat works.
+app.get('/api/sessions/:id/image', async (req, reply) => {
+  let cwd: string;
+  try {
+    cwd = (await openSession((req.params as { id: string }).id)).cwd;
+  } catch {
+    return reply.code(404).send({ error: 'That chat does not exist.' });
+  }
+  return sendImage(reply, await openChatImage(cwd, (req.query as { path?: unknown }).path));
 });
 
 // A file attached to a chat arrives as its raw bytes and is saved in that chat's folder.

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Item } from '../../../shared/protocol';
-  import { authorName, dayKey, dayLabel } from '../lib/format';
+  import { authorName, dayKey, dayLabel, folderPlace, isOutside } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import ActionMenu from './ActionMenu.svelte';
   import ChangesPanel from './ChangesPanel.svelte';
@@ -26,6 +26,10 @@
   );
 
   const folder = $derived(app.meta?.folder ?? '');
+  /** A folder outside data/sessions goes by its own name, and is written out from the home folder (~/code/site). */
+  const outside = $derived(isOutside(folder));
+  const folderName = $derived(outside ? (folder.split('/').pop() ?? folder) : folder);
+  const folderShown = $derived(outside ? folderPlace(folder, app.home) : folder);
   /** The chat's folder was deleted: it can be read, and continued once it has a folder again. */
   const gone = $derived(app.meta?.folderMissing ?? false);
 
@@ -159,7 +163,7 @@
       <path d="M3 5.5h14M3 10h14M3 14.5h14" />
     </svg>
   </button>
-  {#if folder}<Avatar kind="folder" label={folder} size={24} />{/if}
+  {#if folder}<Avatar kind="folder" label={folderName} size={24} />{/if}
   {#if renaming}
     <input
       class="title-field"
@@ -214,9 +218,9 @@
       <p class="empty"><span class="spinner"></span> Loading conversation…</p>
     {:else if app.meta && !app.items.length}
       <div class="empty">
-        <Avatar kind="folder" label={folder} size={48} />
-        <h2>{folder}</h2>
-        <p>This is the very beginning of this chat. Claude will work in <code>{folder}</code>. What would you like to do?</p>
+        <Avatar kind="folder" label={folderName} size={48} />
+        <h2>{folderName}</h2>
+        <p>This is the very beginning of this chat. Claude will work in <code>{folderShown}</code>. What would you like to do?</p>
       </div>
     {/if}
 
@@ -253,7 +257,7 @@
 {#if gone && summary}
   <div class="gone" role="status">
     <p>
-      The folder <code>{folder}</code> was deleted, so this chat is with the archived ones. You can read it; to carry on,
+      The folder <code>{folderShown}</code> was deleted, so this chat is with the archived ones. You can read it; to carry on,
       create the folder again (empty) or move the chat to another folder.
     </p>
     <div class="gone-actions">

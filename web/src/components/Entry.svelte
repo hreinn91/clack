@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Item } from '../../../shared/protocol';
-  import { isImagePath, splitAttachments } from '../lib/format';
+  import { isImagePath, isOutside, splitAttachments } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import Markdown from './Markdown.svelte';
   import ToolCard from './ToolCard.svelte';
@@ -15,7 +15,28 @@
   function inData(path: string): string {
     return `sessions/${app.meta?.folder ?? ''}/${path}`;
   }
+
+  /** A picture in the chat's folder, wherever that folder is. */
+  function image(path: string): string {
+    return `/api/sessions/${app.sessionId}/image?path=${encodeURIComponent(path)}`;
+  }
+
+  /** A folder outside data/sessions is not on the data page: a picture then opens on its own. */
+  const outside = $derived(isOutside(app.meta?.folder ?? ''));
 </script>
+
+{#snippet file(path: string)}
+  {#if isImagePath(path) && app.meta && !missing[path]}
+    <!-- A picture attached before the chat changed folder is still in the old folder: it is then shown by name. -->
+    <img src={image(path)} alt={path} loading="lazy" onerror={() => (missing[path] = true)} />
+  {:else}
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 1.75h5l3.25 3.25v8.25c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1v-10.5c0-.55.45-1 1-1z" />
+      <path d="M9 1.75V5h3.25" />
+    </svg>
+    <span>{path.split('/').pop()}</span>
+  {/if}
+{/snippet}
 
 {#if item.kind === 'user'}
   {@const typed = splitAttachments(item.text)}
@@ -25,18 +46,15 @@
       {#each typed.paths as path (path)}
         <li>
           <!-- Opens the file on the data page, next to the folder it is in. -->
-          <a href="#/data" title={`Open ${path} on the data page`} onclick={() => void app.openFile(inData(path))}>
-            {#if isImagePath(path) && app.meta && !missing[path]}
-              <!-- A picture attached before the chat changed folder is still in the old folder: it is then shown by name. -->
-              <img src={`/api/files/image?path=${encodeURIComponent(inData(path))}`} alt={path} loading="lazy" onerror={() => (missing[path] = true)} />
-            {:else}
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 1.75h5l3.25 3.25v8.25c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1v-10.5c0-.55.45-1 1-1z" />
-                <path d="M9 1.75V5h3.25" />
-              </svg>
-              <span>{path.split('/').pop()}</span>
-            {/if}
-          </a>
+          {#if outside}
+            <a href={isImagePath(path) ? image(path) : undefined} target="_blank" rel="noopener" title={path}>
+              {@render file(path)}
+            </a>
+          {:else}
+            <a href="#/data" title={`Open ${path} on the data page`} onclick={() => void app.openFile(inData(path))}>
+              {@render file(path)}
+            </a>
+          {/if}
         </li>
       {/each}
     </ul>
