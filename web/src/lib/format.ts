@@ -96,6 +96,22 @@ export function colorFor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]!;
 }
 
+/** Where a colour sits on the colour wheel, in degrees. Only for #rrggbb. */
+function hue(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255) as [number, number, number];
+  const max = Math.max(r, g, b);
+  const span = max - Math.min(r, g, b);
+  if (!span) return 0;
+  const raw = max === r ? (g - b) / span : max === g ? (b - r) / span + 2 : (r - g) / span + 4;
+  return (raw * 60 + 360) % 360;
+}
+
+/** True when two colours are far enough apart on the colour wheel to tell apart at a glance. */
+export function distinctColors(a: string, b: string, degrees = 45): boolean {
+  const apart = Math.abs(hue(a) - hue(b));
+  return Math.min(apart, 360 - apart) >= degrees;
+}
+
 /** A file size as people write it: "512 B", "3.4 KB", "12 MB". */
 export function fileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

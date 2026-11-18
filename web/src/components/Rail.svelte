@@ -3,6 +3,31 @@
   import Avatar from './Avatar.svelte';
 
   let menuOpen = $state(false);
+  let picker = $state<HTMLInputElement>();
+  let saving = $state(false);
+  /** Said in the menu when the picture could not be changed. */
+  let pictureError = $state('');
+
+  async function changePicture(action: () => Promise<void>) {
+    saving = true;
+    pictureError = '';
+    try {
+      await action();
+    } catch (err) {
+      pictureError = err instanceof Error ? err.message : String(err);
+      // Open again, so what went wrong is seen.
+      menuOpen = true;
+    } finally {
+      saving = false;
+    }
+  }
+
+  function picked(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) void changePicture(() => app.setAvatar(file));
+  }
 
   // Home is the conversation list: it goes back to the most recent chat.
   const home = $derived(app.sessions[0] ? `#/s/${app.sessions[0].sessionId}` : '#/new');
@@ -122,9 +147,19 @@
             <span class="status"><span class="dot" class:off={!app.connected}></span>{app.connected ? 'Connected' : 'Reconnecting…'}</span>
           </div>
         </div>
+        <button role="menuitem" disabled={saving} onclick={() => picker?.click()}>
+          {saving ? 'Saving picture…' : app.avatar !== undefined ? 'Change picture…' : 'Upload a picture…'}
+        </button>
+        {#if app.avatar !== undefined}
+          <button role="menuitem" disabled={saving} onclick={() => void changePicture(() => app.clearAvatar())}>Remove picture</button>
+        {/if}
+        {#if pictureError}<p class="error" role="alert">{pictureError}</p>{/if}
+        <hr />
         <button role="menuitem" onclick={() => app.logout()}>Sign out of clack</button>
       </div>
     {/if}
+    <!-- Outside the menu, which closes as soon as the file dialog opens. -->
+    <input bind:this={picker} type="file" accept="image/*" hidden onchange={picked} />
   </div>
 </nav>
 
@@ -283,8 +318,24 @@
     text-align: left;
   }
 
-  .menu > button:hover {
+  .menu > button:hover:not(:disabled) {
     background: var(--accent);
     color: var(--accent-ink);
+  }
+
+  .menu > button:disabled {
+    color: var(--muted);
+  }
+
+  .menu hr {
+    margin: 8px 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .menu .error {
+    margin: 4px 16px;
+    color: var(--danger);
+    font-size: 13px;
   }
 </style>

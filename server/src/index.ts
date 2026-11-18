@@ -24,6 +24,7 @@ import { isAuthed, login, logout, sameOrigin } from './auth.ts';
 import { config, tokenFile } from './config.ts';
 import { FileError, listDir, openChatImage, openImage, previewFile } from './files.ts';
 import { MAX_UPLOAD_BYTES, saveUpload } from './uploads.ts';
+import { avatarVersion, MAX_AVATAR_BYTES, openAvatar, removeAvatar, saveAvatar } from './avatar.ts';
 import { capabilities } from './capabilities.ts';
 import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
@@ -52,7 +53,15 @@ app.addHook('onRequest', async (req, reply) => {
 app.get('/api/me', async (req): Promise<Me> => {
   // The name is the server account's by default, so it is kept from anyone not signed in.
   return isAuthed(req)
-    ? { authed: true, name: config.userName, dataDir: config.dataDir, terminal: config.terminal, outsideFolders: config.outsideFolders, home: homedir() }
+    ? {
+        authed: true,
+        name: config.userName,
+        dataDir: config.dataDir,
+        terminal: config.terminal,
+        outsideFolders: config.outsideFolders,
+        home: homedir(),
+        avatar: await avatarVersion(),
+      }
     : { authed: false };
 });
 
@@ -255,6 +264,27 @@ app.get('/api/sessions/:id/image', async (req, reply) => {
     return reply.code(404).send({ error: 'That chat does not exist.' });
   }
   return sendImage(reply, await openChatImage(cwd, (req.query as { path?: unknown }).path));
+});
+
+// The person's own picture, shown instead of their initials. It arrives as raw bytes, already cropped and shrunk.
+app.get('/api/me/avatar', async (_req, reply) => {
+  const avatar = await openAvatar();
+  return reply
+    .header('content-type', avatar.type)
+    .header('cache-control', 'private, max-age=31536000, immutable')
+    .header('x-content-type-options', 'nosniff')
+    .header('content-security-policy', "sandbox; default-src 'none'")
+    .send(avatar.stream);
+});
+
+app.put('/api/me/avatar', { bodyLimit: MAX_AVATAR_BYTES }, async (req, reply) => {
+  if (!Buffer.isBuffer(req.body)) return reply.code(400).send({ error: 'Send the picture itself as the body.' });
+  return { avatar: await saveAvatar(req.body) };
+});
+
+app.delete('/api/me/avatar', async () => {
+  await removeAvatar();
+  return { ok: true };
 });
 
 // A file attached to a chat arrives as its raw bytes and is saved in that chat's folder.

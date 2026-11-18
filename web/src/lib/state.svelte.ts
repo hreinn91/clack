@@ -93,6 +93,8 @@ class AppState {
   authed = $state<boolean | null>(null);
   /** The name the person's own messages are shown under. */
   userName = $state('You');
+  /** When the person's own picture was saved, to ask for the new one after a change; undefined with no picture. */
+  avatar = $state<number | undefined>();
   /** Typed into the search field: narrows the chats and folders in the sidebar. */
   search = $state('');
   /** How much of the Claude plan's limits is used. Null until the first answer. */
@@ -241,6 +243,40 @@ class AppState {
   async login(token: string): Promise<void> {
     await api('/api/login', { token });
     await this.#checkAuth();
+  }
+
+  /**
+   * Makes a picture the person's own: the middle square of it, shrunk to
+   * 256 pixels, so any photo will do. Throws, so the menu can say what went wrong.
+   */
+  async setAvatar(file: File): Promise<void> {
+    if (!file.type.startsWith('image/')) throw new Error('That is not a picture.');
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      throw new Error('That picture could not be opened.');
+    }
+    const SIZE = 256;
+    const side = Math.min(bitmap.width, bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = SIZE;
+    const context = canvas.getContext('2d')!;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, SIZE, SIZE);
+    bitmap.close();
+    // WebP where the browser can make it; others hand back a PNG instead.
+    const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, 'image/webp', 0.9));
+    if (!blob) throw new Error('That picture could not be prepared.');
+    const res = await fetch('/api/me/avatar', { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: blob });
+    if (!res.ok) throw new ApiError(res.status, ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? 'The picture could not be saved.');
+    this.avatar = ((await res.json()) as { avatar: number }).avatar;
+  }
+
+  /** Goes back to initials. Throws, so the menu can say what went wrong. */
+  async clearAvatar(): Promise<void> {
+    await api('/api/me/avatar', undefined, 'DELETE');
+    this.avatar = undefined;
   }
 
   async logout(): Promise<void> {
@@ -554,6 +590,7 @@ class AppState {
       this.terminalEnabled = me.terminal === true;
       this.outsideFolders = me.outsideFolders === true;
       this.home = me.home ?? '';
+      this.avatar = me.avatar;
       if (me.authed) {
         this.#connect();
         void this.loadSessions();

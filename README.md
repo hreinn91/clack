@@ -211,7 +211,10 @@ The window has four parts:
   tools](#tools-and-skills) Claude can use, **Activity** opens
   the [activity log](#activity-log), **Data** opens the [data page](#data-page),
   **Theme** opens the [themes](#themes), **+** starts a chat, and your picture at the bottom shows whether the browser is connected
-  and holds **Sign out**.
+  and holds **Sign out**. Its menu also has **Upload a picture…**: any PNG, JPEG, WebP or
+  other picture the browser can open, cropped to the middle square and shrunk to 256
+  pixels before it is sent. It then stands in for your initials everywhere, including next
+  to your messages. **Change picture…** and **Remove picture** are there once you have one.
 - **Sidebar:** **Chats** shows the folders under `data/sessions` as a tree, with each
   folder's chats listed under it. The dot before a chat is lit and pulsing while Claude
   is working in it. See [Managing chats](#managing-chats).
@@ -306,6 +309,7 @@ data/
     clack-2026-11-14.jsonl  the activity log, one file per day
   preferences.json        the model and effort chosen for each chat
   roots.json              the folders outside data/sessions that were added
+  avatar.webp             your picture, if you uploaded one (or avatar.png / avatar.jpg)
 ```
 
 The **New chat** page asks where the chat should work, with three choices:

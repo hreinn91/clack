@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { colorFor, initials } from '../lib/format';
+  import { colorFor, distinctColors, initials } from '../lib/format';
+  import { app } from '../lib/state.svelte';
 
   // 'person' and 'folder' show letters, 'model' a spark, 'system' a plain grey tile.
   let {
@@ -15,11 +16,21 @@
     haiku: '#2b8a6e',
   };
 
+  const OTHER_MODEL = '#d1345b';
+
+  /** The person's own picture, when they have one. Initials show again if it cannot be loaded. */
+  let broken = $state<number | undefined>();
+  const picture = $derived(kind === 'person' && app.avatar !== undefined && broken !== app.avatar ? `/api/me/avatar?v=${app.avatar}` : '');
+
   const color = $derived.by(() => {
     if (kind === 'system') return '';
     if (kind !== 'model') return colorFor(label);
     const family = Object.keys(MODEL_COLORS).find((name) => label.toLowerCase().includes(name));
-    return family ? MODEL_COLORS[family]! : '#d1345b';
+    const own = family ? MODEL_COLORS[family]! : OTHER_MODEL;
+    // Claude never wears the person's colour, or one close to it, so replies stand apart from prompts at a glance.
+    const person = colorFor(app.userName);
+    if (distinctColors(own, person)) return own;
+    return [...Object.values(MODEL_COLORS), OTHER_MODEL].find((other) => distinctColors(other, person)) ?? own;
   });
 </script>
 
@@ -33,7 +44,9 @@
   style:background={color || undefined}
   aria-hidden="true"
 >
-  {#if kind === 'model'}
+  {#if picture}
+    <img src={picture} alt="" onerror={() => (broken = app.avatar)} />
+  {:else if kind === 'model'}
     <svg viewBox="0 0 24 24" width="62%" height="62%" fill="currentColor">
       <path d="M12 2.5c.5 5.4 3.6 8.5 9 9.5-5.4 1-8.5 4.1-9 9.5-.5-5.4-3.6-8.5-9-9.5 5.4-1 8.5-4.1 9-9.5z" />
     </svg>
@@ -56,6 +69,16 @@
     font-weight: 900;
     line-height: 1;
     user-select: none;
+  }
+
+  .avatar {
+    overflow: hidden;
+  }
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .avatar.system {

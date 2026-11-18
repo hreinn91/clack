@@ -371,4 +371,13 @@ export type TerminalServerMessage = { t: 'out'; data: string } | { t: 'exit'; co
  * own messages are signed with, where the data directory is on the server,
  * and whether the server offers terminals.
  */
-export type Me = { authed: boolean; name?: string; dataDir?: string; terminal?: boolean; outsideFolders?: boolean; home?: string };
+export type Me = {
+  authed: boolean;
+  name?: string;
+  dataDir?: string;
+  terminal?: boolean;
+  outsideFolders?: boolean;
+  home?: string;
+  /** When the person's own picture was saved; absent when they have none. */
+  avatar?: number;
+};
