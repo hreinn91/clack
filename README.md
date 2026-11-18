@@ -309,14 +309,15 @@ The **New chat** page asks where the chat should work, with two choices:
 
 - **New folder** (the default): pick where it goes (the top level, or inside one of your
   folders) and type a name. A preview shows the folder tree with the new folder marked
-  **New**, and the button says **Create folder and start chat**. The name is reduced to
+  **New**, and the button says **Create folder and start chat**. A new folder's name is reduced to
   lowercase letters, digits and dashes; a name with slashes, such as `work/client-a`,
   makes nested folders (up to eight deep). Leaving the name empty makes one up, such as
   `chat-20261117-203112`. If the folder is already there, the preview says so and the
   chat joins it.
 - **Existing folder:** the same fuzzy search as **Change folder**, over every folder
   under `data/sessions`. With nothing typed it lists your top-level folders and the
-  folders that have chats, with how many chats each has. Pick one to start.
+  folders that have chats, with how many chats each has. Pick one to start. Folders you
+  made yourself keep their names as they are (`MyRepo`, `my_project`, `site.com`).
 
 There is no way to start or resume a chat anywhere else from
 the UI, and Claude Code sessions from elsewhere on the computer are not listed.
@@ -417,6 +418,9 @@ every chat works in a folder in there. Hidden folders (such as `.git`) and
 - A folder that chats work in has a filled green icon and the number of its chats. A
   folder with no chats anywhere inside it is dimmed. A folded folder with chats further
   down shows how many.
+- A folder that is the top of a git repository (it has a `.git` of its own) has a small
+  branch badge with the branch it is on, or the start of the commit's hash when it is
+  detached. While the row's buttons are showing only the icon stays, so the name has room.
 - Folders with chats come first, the most recently used at the top; the rest follow by
   name. Folders with chats start unfolded, the rest folded. Click a folder's name to fold
   or unfold it; the browser remembers it.
@@ -425,6 +429,10 @@ every chat works in a folder in there. Hidden folders (such as `.git`) and
 - **New folder:** the folder button on the `data/sessions` row makes one at the top
   level, and the same button on a folder's row makes one inside it. Type the name and press Enter, or
   Escape to cancel.
+- **Delete a folder:** the bin button on a folder's row deletes it, with every file and
+  folder inside it, after asking. This cannot be undone. Not while a chat working in it is
+  busy. Chats that worked there are kept and move to **Archived**, marked **deleted**
+  (see below).
 
 - **Rename:** click the title at the top of a chat, or use **Rename…** in a chat's
   **⋯** menu (in the sidebar row, or at the top right of the chat).

@@ -48,6 +48,8 @@
   }
 
   const query = $derived(app.search.trim().toLowerCase());
+  /** Folders that are the top of a git repository, by path. */
+  const repos = $derived(new Map(app.folders.filter((folder) => folder.repo).map((folder) => [folder.name, folder])));
   const openFolder = $derived(app.route.name === 'new' ? app.route.folder : undefined);
 
   /** Put away by hand, or left without a folder when it was deleted. */
@@ -260,6 +262,7 @@
 {#snippet folderRow(node: Node)}
   {@const open = isOpen(node)}
   {@const own = node.chats.length > 0}
+  {@const repo = repos.get(node.path)}
   <li>
     <div
       class="folder"
@@ -272,7 +275,7 @@
       <button
         class="name"
         aria-expanded={open}
-        title={`data/sessions/${node.path}${own ? `\n${node.chats.length} chat${node.chats.length === 1 ? '' : 's'} work here` : ''}`}
+        title={`data/sessions/${node.path}${repo ? `\nGit repository${repo.branch ? `, on ${repo.branch}` : ''}` : ''}${own ? `\n${node.chats.length} chat${node.chats.length === 1 ? '' : 's'} work here` : ''}`}
         onclick={() => toggle(node)}
       >
         <svg class="chevron" class:open width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
@@ -280,6 +283,17 @@
         </svg>
         {@render folderIcon(own)}
         <span class="label">{node.name}</span>
+        {#if repo}
+          <span class="repo" aria-label={`Git repository${repo.branch ? `, on branch ${repo.branch}` : ''}`}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+              <circle cx="4.5" cy="3.5" r="1.75" />
+              <circle cx="4.5" cy="12.5" r="1.75" />
+              <circle cx="11.5" cy="5.5" r="1.75" />
+              <path d="M4.5 5.25v5.5M11.5 7.25c0 2.5-2.5 3-6 3.75" />
+            </svg>
+            {#if repo.branch}<span class="branch">{repo.branch}</span>{/if}
+          </span>
+        {/if}
         {#if own}
           <span class="count" aria-label={`${node.chats.length} chats`}>{node.chats.length}</span>
         {:else if !open && node.total}
@@ -294,6 +308,11 @@
       </button>
       <button class="tool" aria-label={`New folder in ${node.path}`} title="New folder inside this one" onclick={() => void startCreate(node.path)}>
         {@render newFolderIcon()}
+      </button>
+      <button class="tool danger" aria-label={`Delete folder ${node.path}`} title="Delete this folder" onclick={() => (app.deletingFolder = node.path)}>
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2.75 4.25h10.5M6.25 4.25V2.75h3.5v1.5M4 4.25l.6 8.6c.05.66.6 1.15 1.25 1.15h4.3c.66 0 1.2-.5 1.25-1.15l.6-8.6M6.75 7v4.25M9.25 7v4.25" />
+        </svg>
       </button>
     </div>
     {#if open}
@@ -612,6 +631,42 @@
     line-height: 17px;
   }
 
+  /* The top of a git repository: a branch icon and the branch it is on, in a quiet pill. */
+  .repo {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    max-width: 45%;
+    padding: 0 6px 0 5px;
+    border: 1px solid var(--chrome-tile);
+    border-radius: 999px;
+    color: var(--chrome-muted);
+    font: 500 11px/16px var(--mono);
+  }
+
+  .repo svg {
+    flex: none;
+  }
+
+  .branch {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* While the row's buttons are out the name needs the room: the branch steps aside, the icon stays. */
+  .folder:hover .branch,
+  .folder:focus-within .branch {
+    display: none;
+  }
+
+  .folder:hover .repo,
+  .folder:focus-within .repo {
+    padding: 0 4px;
+  }
+
   .count.below {
     background: none;
     font-weight: 500;
@@ -666,6 +721,10 @@
   .tool:hover {
     background: var(--chrome-tile);
     color: var(--chrome-strong);
+  }
+
+  .tool.danger:hover {
+    color: var(--danger);
   }
 
   .tool.shown,

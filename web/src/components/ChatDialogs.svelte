@@ -41,6 +41,40 @@
     }
   }
 
+  // ---- deleting a folder from the chat tree ----
+
+  const folder = $derived(app.deletingFolder);
+  const within = (path: string) => folder !== null && (path === folder || path.startsWith(`${folder}/`));
+  /** The chats that work in the folder, or in one inside it. They stay, but lose their folder. */
+  const folderChats = $derived(app.sessions.filter((chat) => !chat.missing && within(chat.folder)));
+  const subfolders = $derived(app.folders.filter((entry) => entry.name !== folder && within(entry.name)).length);
+  const busyChat = $derived(folderChats.some((chat) => chat.running));
+
+  $effect(() => {
+    if (folder === null) return;
+    error = '';
+    busy = false;
+  });
+
+  function closeFolder() {
+    if (!busy) app.deletingFolder = null;
+  }
+
+  async function removeFolder(event: SubmitEvent) {
+    event.preventDefault();
+    if (folder === null || busy) return;
+    busy = true;
+    error = '';
+    try {
+      await app.deleteFolder(folder);
+      app.deletingFolder = null;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      busy = false;
+    }
+  }
+
   function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!dialog) return;
@@ -89,6 +123,35 @@
         {:else if dialog.kind === 'delete'}
           <button class="btn delete" disabled={busy}>Delete</button>
         {/if}
+      </div>
+    </form>
+  </Modal>
+{/if}
+
+{#if folder !== null}
+  <Modal title="Delete folder" onclose={closeFolder}>
+    <form onsubmit={removeFolder}>
+      <h2>Delete this folder?</h2>
+      <p>
+        <code>data/sessions/{folder}</code> and everything in it{subfolders
+          ? `, including ${subfolders} folder${subfolders === 1 ? '' : 's'} inside it,`
+          : ''} will be deleted for good. The files cannot be brought back.
+      </p>
+      {#if folderChats.length}
+        <p>
+          {folderChats.length === 1 ? '1 chat works' : `${folderChats.length} chats work`} in it. The
+          {folderChats.length === 1 ? 'chat is' : 'chats are'} kept and move to the Archived list, where the folder can be
+          recreated empty or another one picked.
+        </p>
+      {/if}
+      {#if busyChat}<p class="error">A chat in this folder is still working. Stop it or wait for it to finish first.</p>{/if}
+
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
+
+      <div class="actions">
+        <!-- The keyboard starts on Cancel, so a stray Enter deletes nothing. -->
+        <button type="button" class="btn" data-autofocus="" onclick={closeFolder} disabled={busy}>Cancel</button>
+        <button class="btn delete" disabled={busy || busyChat}>Delete folder</button>
       </div>
     </form>
   </Modal>

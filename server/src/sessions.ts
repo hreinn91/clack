@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, realpath } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -46,7 +45,7 @@ import { rememberTools } from './capabilities.ts';
 import { gitStatus } from './git.ts';
 import { TaskBoard } from './tasks.ts';
 import { config } from './config.ts';
-import { ensureFolder, folderLabel, gitBranch, insideDir, insideSessions, isFolder } from './folders.ts';
+import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideSessions, isFolder, recreateFolder, removeFolder } from './folders.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
 import { projectDirName, relocateTranscript } from './relocate.ts';
@@ -313,6 +312,17 @@ export class LiveSession {
     await this.pumping;
   }
 
+  /** Stops the Claude Code process and waits for it to go. The next prompt starts it again. */
+  async stopProcess(): Promise<void> {
+    await this.settle();
+  }
+
+  /** Tells anyone looking at the chat that its folder was deleted. */
+  folderGone(): void {
+    this.emitMeta();
+    this.notice('info', `The folder ${folderLabel(this.cwd)} was deleted. Recreate it or change this chat's folder to carry on.`);
+  }
+
   /** Gives the chat a title of the person's choosing. */
   async rename(title: string): Promise<void> {
     if (this.onDisk) await renameSession(this.sessionId, title);
@@ -378,10 +388,7 @@ export class LiveSession {
   /** Creates this chat's folder again, empty, after it was deleted. */
   async restoreFolder(): Promise<void> {
     if (isFolder(this.cwd)) return;
-    if (!insideSessions(this.cwd)) throw new Error('That folder cannot be used.');
-    await mkdir(this.cwd, { recursive: true });
-    // A symlink planted along the way must not become a way out of data/sessions.
-    if ((await realpath(this.cwd)) !== this.cwd) throw new Error('That folder cannot be used.');
+    await recreateFolder(this.cwd);
     this.emitMeta();
     this.notice('info', `The folder ${folderLabel(this.cwd)} was created again. Files that were in it are not back.`);
     bus.emit('sessions_changed');
@@ -917,6 +924,24 @@ export async function deleteChat(sessionId: string): Promise<void> {
   live.delete(sessionId);
   if (session.savedOnDisk) await deleteSession(sessionId);
   forgetSession(sessionId);
+  bus.emit('sessions_changed');
+}
+
+/**
+ * Deletes a folder under data/sessions, with every file and folder in it, for
+ * good. Not while a chat working there is busy. The chats that worked in it
+ * are kept: they show as having lost their folder, which can be made again.
+ */
+export async function deleteFolder(name: unknown): Promise<void> {
+  const path = await existingFolder(name);
+  const inside = [...live.values()].filter((session) => insideDir(session.cwd, path));
+  if (inside.some((session) => session.state === 'running' || session.hasPending || session.hasBackgroundWork)) {
+    throw new Error('A chat in this folder is still working. Stop it or wait for it to finish first.');
+  }
+  // Their Claude Code processes would be left in a folder that is gone; they start again on the next message.
+  await Promise.all(inside.map((session) => session.stopProcess()));
+  await removeFolder(path);
+  for (const session of inside) session.folderGone();
   bus.emit('sessions_changed');
 }
 

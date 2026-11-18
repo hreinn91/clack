@@ -24,7 +24,7 @@ import { capabilities } from './capabilities.ts';
 import { ensureFolder, folderLabel, listFolders } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
 import { listModels } from './models.ts';
-import { bus, contextDetail, createSession, deleteChat, gitDetail, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
+import { bus, contextDetail, createSession, deleteChat, deleteFolder, gitDetail, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
 import { planUsage } from './usage.ts';
 import { registerWs } from './ws.ts';
@@ -130,6 +130,16 @@ app.delete('/api/sessions/:id', async (req, reply) => {
 });
 
 app.get('/api/folders', async (): Promise<FolderInfo[]> => listFolders());
+
+// Deletes a folder under data/sessions, with everything in it. The path is the one the chat tree shows ("work/MyRepo").
+app.delete('/api/folders', async (req, reply) => {
+  try {
+    await deleteFolder((req.body as { path?: unknown } | null)?.path);
+    return { ok: true };
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'That folder could not be deleted.' });
+  }
+});
 
 // What Claude Code can use in a folder (or, with no folder, everywhere): MCP servers, skills, agents, tools.
 app.get('/api/capabilities', async (req, reply): Promise<Capabilities | undefined> => {

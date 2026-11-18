@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
-import { mkdir, readdir, realpath, stat } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { FolderInfo } from '../../shared/protocol.ts';
 import { config } from './config.ts';
@@ -34,13 +34,44 @@ export function slugify(name: string): string {
 /** The deepest a chat folder can be nested. */
 const MAX_DEPTH = 8;
 
+/** A folder name that can be used just as it is written: not hidden, not "." or "..", and with nothing that could reach elsewhere. */
+function plainName(part: string): boolean {
+  return part.length > 0 && part.length <= 255 && !part.startsWith('.') && !/[\0\\/]/.test(part);
+}
+
 /**
- * Reduces a typed folder path, such as "Work/Client A", to plain names joined
- * by slashes ("work/client-a"). Each part is slugified on its own, so the
- * result can never step outside data/sessions.
+ * Reduces a typed folder path to the names of the folders it means below
+ * data/sessions. A part that names a folder that is already there is kept as
+ * it is written ("MyRepo", "my_project"), so existing folders work whatever
+ * they are called. Any other part is the name of a folder still to be made
+ * and is reduced to a plain one ("Client A" → "client-a"). Nothing in the
+ * result can step outside data/sessions.
  */
-export function slugPath(path: string): string {
-  return path.split(/[\\/]+/).map(slugify).filter(Boolean).slice(0, MAX_DEPTH).join('/');
+export function folderParts(path: string): string[] {
+  const parts: string[] = [];
+  let dir = config.sessionsDir;
+  for (const raw of path.split(/[\\/]+/)) {
+    if (parts.length >= MAX_DEPTH) break;
+    const part = plainName(raw) && isFolder(join(dir, raw)) ? raw : slugify(raw);
+    if (!part) continue;
+    parts.push(part);
+    dir = join(dir, part);
+  }
+  return parts;
+}
+
+/**
+ * Refuses a path below data/sessions when any folder along the way is a
+ * symlink, which could lead out of it. Parts that do not exist yet are fine.
+ */
+async function refuseLinks(path: string): Promise<void> {
+  let at = config.sessionsDir;
+  for (const part of relative(config.sessionsDir, path).split(sep).filter(Boolean)) {
+    at = join(at, part);
+    const info = await lstat(at).catch(() => undefined);
+    if (!info) return;
+    if (info.isSymbolicLink()) throw new Error(`${folderLabel(at)} is a link to somewhere else, so chats cannot use it.`);
+  }
 }
 
 /**
@@ -102,15 +133,47 @@ function generatedName(): string {
  * error; otherwise a name is made up.
  */
 export async function ensureFolder(name: unknown, required = false): Promise<string> {
-  let slug = typeof name === 'string' ? slugPath(name) : '';
-  if (!slug && required) throw new Error('Give the folder a name.');
-  slug ||= generatedName();
-  const path = join(config.sessionsDir, ...slug.split('/'));
-  await mkdir(path, { recursive: true });
+  const parts = typeof name === 'string' ? folderParts(name) : [];
+  if (!parts.length && required) throw new Error('Give the folder a name.');
+  if (!parts.length) parts.push(generatedName());
+  const path = join(config.sessionsDir, ...parts);
   // A symlink planted in data/sessions must not become a way out of it.
+  await refuseLinks(path);
+  await mkdir(path, { recursive: true });
+  await refuseLinks(path);
+  // On a disk that ignores case (macOS, Windows) "myrepo" finds "MyRepo": keep the folder's own spelling.
   const real = await realpath(path);
-  if (real !== path) throw new Error('That folder cannot be used.');
+  if (!insideSessions(real)) throw new Error('That folder cannot be used.');
   return real;
+}
+
+/** Creates a chat's folder again after it was deleted, the same way a new one is made. */
+export async function recreateFolder(path: string): Promise<void> {
+  if (!insideSessions(path)) throw new Error('That folder cannot be used.');
+  await refuseLinks(path);
+  await mkdir(path, { recursive: true });
+  await refuseLinks(path);
+}
+
+/**
+ * The existing folder a path from the chat tree names, exactly as it is
+ * written there. Unlike ensureFolder nothing is made up or created: it has to
+ * be there already. Never data/sessions itself.
+ */
+export async function existingFolder(name: unknown): Promise<string> {
+  const parts = typeof name === 'string' ? name.split('/') : [];
+  if (!parts.length || parts.length > MAX_DEPTH || !parts.every(plainName)) throw new Error('That is not a folder in data/sessions.');
+  const path = join(config.sessionsDir, ...parts);
+  await refuseLinks(path);
+  if (!isFolder(path)) throw new Error(`There is no folder ${parts.join('/')} in data/sessions.`);
+  return path;
+}
+
+/** Deletes a folder under data/sessions and everything in it, for good. */
+export async function removeFolder(path: string): Promise<void> {
+  if (!insideSessions(path)) throw new Error('That folder cannot be deleted.');
+  await refuseLinks(path);
+  await rm(path, { recursive: true });
 }
 
 /** Folders never shown in the chat tree: hidden ones (.git, .claude) and installed packages. */
@@ -136,8 +199,14 @@ export async function listFolders(): Promise<FolderInfo[]> {
       for (const entry of entries) {
         if (!entry.isDirectory() || skipped(entry.name) || folders.length >= MAX_FOLDERS) continue;
         const name = parent ? `${parent}/${entry.name}` : entry.name;
-        const modified = (await stat(join(config.sessionsDir, name)).catch(() => undefined))?.mtimeMs ?? 0;
-        folders.push({ name, modified });
+        const path = join(config.sessionsDir, name);
+        const modified = (await stat(path).catch(() => undefined))?.mtimeMs ?? 0;
+        // A .git of its own (a folder, or a file for a worktree or submodule) makes it the top of a repository.
+        const repo = await stat(join(path, '.git')).then(
+          () => true,
+          () => false,
+        );
+        folders.push(repo ? { name, modified, repo, branch: gitBranch(path) } : { name, modified });
         next.push(name);
       }
     }

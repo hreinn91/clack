@@ -34,7 +34,7 @@
           </button>
           <span class="acts">
             {#if path === 'sessions'}
-              <a href={`#/new/${entry.name}`} aria-label={`Start a chat in ${entry.name}`} title="Start a chat in this folder">
+              <a href={`#/new/${encodeURIComponent(entry.name)}`} aria-label={`Start a chat in ${entry.name}`} title="Start a chat in this folder">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
                   <path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z" />
                 </svg>

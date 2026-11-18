@@ -46,8 +46,20 @@ function parseRoute(): Route {
   if (location.hash === '#/usage') return { name: 'usage' };
   if (location.hash === '#/tools') return { name: 'tools' };
   // A folder picked in the sidebar: the new-chat page opens with it filled in.
-  const folder = location.hash.match(/^#\/new\/([a-z0-9-]{1,64}(?:\/[a-z0-9-]{1,64}){0,7})$/);
-  return folder ? { name: 'new', folder: folder[1]! } : { name: 'new' };
+  // Any name a folder in the tree can have ("MyRepo", "my_project"), but nothing hidden or stepping up.
+  const folder = location.hash.match(/^#\/new\/(.+)$/);
+  const path = folder ? safeDecode(folder[1]!) : '';
+  const parts = path.split('/');
+  const plain = path !== '' && parts.length <= 8 && parts.every((part) => part !== '' && !part.startsWith('.') && !part.includes('\\'));
+  return plain ? { name: 'new', folder: path } : { name: 'new' };
+}
+
+function safeDecode(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return '';
+  }
 }
 
 const MAX_LOGS = 2000;
@@ -85,6 +97,8 @@ class AppState {
   paletteOpen = $state(false);
   /** A question about one chat that is waiting for an answer: its new name, its new folder, or whether to delete it. */
   dialog = $state<{ kind: 'rename' | 'move' | 'delete'; session: SessionSummary } | null>(null);
+  /** A folder in the chat tree waiting for its deletion to be confirmed: its path from data/sessions. */
+  deletingFolder = $state<string | null>(null);
   /** The sidebar's width in pixels, and whether it is tucked away to leave the page more room. */
   sidebarWidth = $state(savedSidebar().width);
   sidebarHidden = $state(savedSidebar().hidden);
@@ -308,6 +322,16 @@ class AppState {
     const { name } = await api<{ name: string }>('/api/folders', { path });
     await this.loadFolders();
     return name;
+  }
+
+  /** Deletes a folder under data/sessions and everything in it. Throws, so the dialog can say what went wrong. */
+  async deleteFolder(path: string): Promise<void> {
+    await api('/api/folders', { path }, 'DELETE');
+    // A new-chat page offering that folder would offer one that is gone.
+    if (this.route.name === 'new' && this.route.folder && (this.route.folder === path || this.route.folder.startsWith(`${path}/`))) {
+      location.hash = '#/new';
+    }
+    await Promise.all([this.loadSessions(), this.loadFolders()]);
   }
 
   /**

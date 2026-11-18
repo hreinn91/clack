@@ -293,7 +293,14 @@ export type Capabilities = {
 };
 
 /** A folder under data/sessions; `name` is its path from there, with forward slashes ("work/client-a"). */
-export type FolderInfo = { name: string; modified: number };
+export type FolderInfo = {
+  name: string;
+  modified: number;
+  /** The folder is the top of a git repository (it has a .git of its own). */
+  repo?: boolean;
+  /** For a repository: the branch it is on, or the start of the commit's hash when detached. */
+  branch?: string;
+};
 
 /** One file or folder under the data directory. */
 export type FileEntry = { name: string; kind: 'dir' | 'file'; size: number; modified: number };
