@@ -277,3 +277,81 @@ button {
     animation-duration: 3s;
   }
 }
+
+/*
+ * Code coloured by highlight.js (the diff view), in the theme's code colours:
+ * the palette each theme gives its terminal, set as --syn-* by the theme.
+ */
+.syntax .hljs-keyword,
+.syntax .hljs-selector-tag,
+.syntax .hljs-doctag {
+  color: var(--syn-keyword);
+}
+
+.syntax .hljs-string,
+.syntax .hljs-regexp,
+.syntax .hljs-addition,
+.syntax .hljs-template-tag,
+.syntax .hljs-char.escape_ {
+  color: var(--syn-string);
+}
+
+.syntax .hljs-number,
+.syntax .hljs-literal,
+.syntax .hljs-symbol,
+.syntax .hljs-bullet {
+  color: var(--syn-number);
+}
+
+.syntax .hljs-title,
+.syntax .hljs-title.function_,
+.syntax .hljs-section {
+  color: var(--syn-function);
+}
+
+.syntax .hljs-type,
+.syntax .hljs-title.class_,
+.syntax .hljs-title.class_.inherited__ {
+  color: var(--syn-type);
+}
+
+.syntax .hljs-attr,
+.syntax .hljs-attribute,
+.syntax .hljs-property,
+.syntax .hljs-selector-class,
+.syntax .hljs-selector-id,
+.syntax .hljs-selector-attr,
+.syntax .hljs-selector-pseudo {
+  color: var(--syn-attr);
+}
+
+.syntax .hljs-built_in,
+.syntax .hljs-variable.language_ {
+  color: var(--syn-builtin);
+}
+
+.syntax .hljs-tag,
+.syntax .hljs-name,
+.syntax .hljs-deletion,
+.syntax .hljs-template-variable {
+  color: var(--syn-tag);
+}
+
+.syntax .hljs-meta,
+.syntax .hljs-meta .hljs-keyword {
+  color: var(--syn-meta);
+}
+
+.syntax .hljs-comment,
+.syntax .hljs-quote {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+.syntax .hljs-emphasis {
+  font-style: italic;
+}
+
+.syntax .hljs-strong {
+  font-weight: 700;
+}

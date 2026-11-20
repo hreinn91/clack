@@ -4,6 +4,7 @@
   import { ago } from '../lib/format';
   import { placeBelow } from '../lib/popover';
   import { app } from '../lib/state.svelte';
+  import DiffView from './DiffView.svelte';
 
   // The Changes chip beside the chat's title, shown when the chat's folder is
   // in a git repository: how much is changed and not committed, and, opened,
@@ -16,6 +17,8 @@
   let chip = $state<HTMLButtonElement>();
   let card = $state<HTMLElement>();
   let place = $state({ top: 0, left: 0, width: 460 });
+  /** The file whose diff is open; the list stays open behind it, to pick the next one. */
+  let viewing = $state<GitChange | null>(null);
 
   const summary = $derived(app.meta?.gitChanges);
   const dirty = $derived((summary?.files ?? 0) > 0);
@@ -98,10 +101,10 @@
 <svelte:window
   onpointerdown={(event) => {
     const target = event.target as Node;
-    if (open && !chip?.contains(target) && !card?.contains(target)) open = false;
+    if (open && !viewing && !chip?.contains(target) && !card?.contains(target)) open = false;
   }}
   onkeydown={(event) => {
-    if (open && event.key === 'Escape') {
+    if (open && !viewing && event.key === 'Escape') {
       open = false;
       chip?.focus();
     }
@@ -184,7 +187,12 @@
           <ul>
             {#each group.changes as change (`${change.area}:${change.path}`)}
               {@const parts = split(change.path)}
-              <li title={`${change.status}: ${change.from ? `${change.from} → ` : ''}${change.path}`}>
+              <li>
+                <button
+                  class="row"
+                  title={`${change.status}: ${change.from ? `${change.from} → ` : ''}${change.path}. Click to see the changes`}
+                  onclick={() => (viewing = change)}
+                >
                 <span class="letter {change.status === 'deleted' ? 'gone' : change.area}" aria-label={change.status}>{LETTER[change.status]}</span>
                 <span class="path">
                   {#if change.from}<span class="dir">{change.from} →&nbsp;</span>{/if}<span class="dir">{parts.dir}</span><span class="name">{parts.name}</span>
@@ -200,6 +208,7 @@
                     {#if !change.added && !change.deleted}<span class="muted">0</span>{/if}
                   {/if}
                 </span>
+                </button>
               </li>
             {/each}
           </ul>
@@ -216,6 +225,10 @@
       <p class="empty"><span class="spinner"></span> Asking git…</p>
     {/if}
   </div>
+{/if}
+
+{#if viewing}
+  <DiffView change={viewing} onclose={() => (viewing = null)} />
 {/if}
 
 <style>
@@ -376,15 +389,29 @@
   }
 
   li {
+    display: block;
+  }
+
+  /* Each file is a button: it opens the file's diff. */
+  .row {
     display: flex;
     align-items: center;
     gap: 8px;
+    width: 100%;
     min-height: 26px;
     padding: 2px 6px;
+    border: 0;
     border-radius: 5px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
-  li:hover {
+  .row:hover,
+  .row:focus-visible {
+    outline: none;
     background: var(--hover);
   }
 

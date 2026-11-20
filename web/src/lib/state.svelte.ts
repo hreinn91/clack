@@ -6,6 +6,8 @@ import type {
   FilePreview,
   Capabilities,
   ContextDetail,
+  GitChange,
+  GitDiff,
   GitStatus,
   BrowseListing,
   FolderInfo,
@@ -369,6 +371,17 @@ class AppState {
   /** What is changed and not committed in a chat's git repository; null when it is not in one. Throws, so the list can say what went wrong. */
   async loadGitStatus(sessionId: string): Promise<GitStatus | null> {
     return (await api<{ status: GitStatus | null }>(`/api/sessions/${sessionId}/git`)).status;
+  }
+
+  /** One changed file's diff. Throws, so the diff view can say what went wrong. */
+  async loadGitDiff(sessionId: string, change: GitChange, whole: boolean): Promise<GitDiff> {
+    const query = new URLSearchParams({
+      path: change.path,
+      area: change.area,
+      ...(change.from ? { from: change.from } : {}),
+      ...(whole ? { whole: '1' } : {}),
+    });
+    return api<GitDiff>(`/api/sessions/${sessionId}/git/diff?${query}`);
   }
 
   /** Stops one of a chat's background tasks. Throws, so the list can say what went wrong. */

@@ -6,6 +6,7 @@ import type {
   ContextUsage,
   Draft,
   EffortLevel,
+  GitDiff,
   GitStatus,
   GitSummary,
   Item,
@@ -27,7 +28,7 @@ import { allRecords, chatOf, forgetChat, isEarlierSegment, noteChat, recordOf, s
 import type { Segment } from './chats.ts';
 import { config } from './config.ts';
 import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideRoots, isFolder, recreateFolder, removeFolder, removeRoot } from './folders.ts';
-import { gitStatus } from './git.ts';
+import { gitFileDiff, gitStatus } from './git.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
 import type { Prefs } from './prefs.ts';
@@ -683,6 +684,11 @@ export async function moveChat(sessionId: string, folder: unknown): Promise<void
 /** What fills a chat's context window right now. */
 export async function contextDetail(sessionId: string): Promise<ContextDetail> {
   return (await openSession(sessionId)).contextDetail();
+}
+
+/** One changed file's diff, in a chat's git repository. */
+export async function gitDiff(sessionId: string, change: { path: unknown; from?: unknown; area: unknown }, whole: boolean): Promise<GitDiff> {
+  return gitFileDiff((await openSession(sessionId)).cwd, change, whole);
 }
 
 /** What is changed and not committed in a chat's git repository; null when it is not in one. */

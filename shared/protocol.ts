@@ -145,6 +145,22 @@ export type GitChange = {
   binary?: boolean;
 };
 
+/** One changed file's changes, as a unified diff, for the diff view. */
+export type GitDiff = {
+  path: string;
+  from?: string;
+  area: GitChange['area'];
+  /** The diff, starting at its first "@@" line. Empty for a binary file or one too big to show. */
+  diff: string;
+  binary: boolean;
+  /** Too big to show; the numbers in the list still say how much changed. */
+  tooLarge: boolean;
+  /** Only the start is shown. */
+  truncated: boolean;
+  /** With the whole file around the changes, rather than a few lines. */
+  whole: boolean;
+};
+
 /** The full picture behind GitSummary, for the list under the chat's title. */
 export type GitStatus = GitSummary & {
   /** The repository's top folder, from data/sessions. */

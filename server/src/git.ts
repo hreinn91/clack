@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { open } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { GitChange, GitStatus } from '../../shared/protocol.ts';
-import { folderLabel, gitRepo } from './folders.ts';
+import { join, resolve } from 'node:path';
+import type { GitChange, GitDiff, GitStatus } from '../../shared/protocol.ts';
+import { folderLabel, gitRepo, insideDir } from './folders.ts';
 
 // What is changed and not committed in a chat's git repository, for the
 // Changes list under the chat's title. git is asked directly. Its settings
@@ -152,4 +152,82 @@ export async function gitStatus(cwd: string): Promise<GitStatus | null> {
   status.changes = changes.slice(0, MAX_LISTED);
   status.checkedAt = Date.now();
   return status;
+}
+
+/** More than this and a diff is cut short. */
+const MAX_DIFF_CHARS = 1_000_000;
+/** A new or conflicted file bigger than this is not shown in full. */
+const MAX_FILE_BYTES = 1024 * 1024;
+
+/** The part of a diff from its first hunk on: the file headers are said elsewhere. */
+function hunks(diff: string): string {
+  const at = diff.indexOf('\n@@');
+  return at === -1 ? (diff.startsWith('@@') ? diff : '') : diff.slice(at + 1);
+}
+
+/** A file's text as a diff: every line added (a new file), or every line unchanged (a file in conflict, markers and all). */
+function asDiff(text: string, sign: '+' | ' '): string {
+  const lines = text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n');
+  const header = sign === '+' ? `@@ -0,0 +1,${lines.length} @@` : `@@ -1,${lines.length} +1,${lines.length} @@`;
+  return `${header}\n${lines.map((line) => sign + line).join('\n')}\n`;
+}
+
+/**
+ * What changed in one file of a chat's repository, as a unified diff. `path`
+ * (and `from`, for a rename) are from the repository's top folder, as the
+ * Changes list has them; `whole` shows the whole file around the changes.
+ */
+export async function gitFileDiff(cwd: string, change: { path: unknown; from?: unknown; area: unknown }, whole: boolean): Promise<GitDiff> {
+  const repo = gitRepo(cwd);
+  if (!repo) throw new Error('This chat\'s folder is not in a git repository.');
+  const root = repo.root;
+  const path = typeof change.path === 'string' ? change.path : '';
+  const from = typeof change.from === 'string' && change.from ? change.from : undefined;
+  const area = (['staged', 'unstaged', 'untracked', 'conflict'] as const).find((a) => a === change.area);
+  if (!area) throw new Error('Which kind of change?');
+  for (const p of [path, from]) {
+    if (p === undefined) continue;
+    if (!p || p.includes('\0') || !insideDir(resolve(root, p), root)) throw new Error('That file is not in this repository.');
+  }
+  const base: GitDiff = { path, ...(from ? { from } : {}), area, diff: '', binary: false, tooLarge: false, truncated: false, whole };
+
+  if (area === 'untracked' || area === 'conflict') {
+    // A new file has nothing to compare with; a file in conflict is shown as it is, with git's markers in it.
+    let data: Buffer;
+    try {
+      const file = await open(resolve(root, path), 'r');
+      try {
+        const { size } = await file.stat();
+        if (size > MAX_FILE_BYTES) return { ...base, tooLarge: true };
+        data = await file.readFile();
+      } finally {
+        await file.close();
+      }
+    } catch {
+      throw new Error('That file could not be read.');
+    }
+    if (data.subarray(0, 8000).includes(0)) return { ...base, binary: true };
+    return { ...base, diff: asDiff(data.toString('utf8'), area === 'untracked' ? '+' : ' ') };
+  }
+
+  const args = [
+    'diff',
+    ...(area === 'staged' ? ['--cached'] : []),
+    '--no-color',
+    '--no-ext-diff',
+    '--no-textconv',
+    '-M',
+    `-U${whole ? 100_000 : 3}`,
+    '--',
+    ...(from ? [from] : []),
+    path,
+  ];
+  const out = await git(root, args);
+  if (/^Binary files .* differ$/m.test(out)) return { ...base, binary: true };
+  const diff = hunks(out);
+  if (diff.length > MAX_DIFF_CHARS) {
+    const cut = diff.lastIndexOf('\n', MAX_DIFF_CHARS);
+    return { ...base, diff: diff.slice(0, cut + 1), truncated: true };
+  }
+  return { ...base, diff };
 }

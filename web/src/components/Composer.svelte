@@ -225,14 +225,44 @@
     }
   }
 
-  // Grow with the text, up to a point.
+  /** The tallest the box grows before it scrolls, in CSS pixels. */
+  const MAX_HEIGHT = 240;
+
+  /**
+   * Grows the box with the text, up to a point. Empty, it keeps the height its
+   * style gives it (two lines), whatever the placeholder would wrap to. It
+   * only scrolls once the text is longer than the box can grow, so no
+   * scrollbar shows from a fraction of a pixel lost to rounding at some zoom
+   * levels.
+   */
+  function fit() {
+    if (!area) return;
+    if (!text) {
+      area.style.height = '';
+      area.style.overflowY = 'hidden';
+      return;
+    }
+    // Text that fits in the starting height leaves it as it is.
+    area.style.height = '';
+    if (area.scrollHeight <= area.clientHeight) {
+      area.style.overflowY = 'hidden';
+      return;
+    }
+    area.style.height = 'auto';
+    // scrollHeight is rounded; a pixel or two more keeps it from falling just short.
+    const needed = area.scrollHeight + 2;
+    area.style.height = `${Math.min(needed, MAX_HEIGHT)}px`;
+    area.style.overflowY = needed > MAX_HEIGHT ? 'auto' : 'hidden';
+  }
+
   $effect(() => {
     text;
-    if (!area) return;
-    area.style.height = 'auto';
-    area.style.height = `${Math.min(area.scrollHeight, 220)}px`;
+    fit();
   });
 </script>
+
+<!-- Zooming the page resizes the window too: the text may wrap differently, so the box is measured again. -->
+<svelte:window onresize={fit} />
 
 <div class="composer">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -485,13 +515,23 @@
 
   textarea {
     width: 100%;
+    /* Two lines to start with, in the text's own units, so it scales with zoom like the text does. */
+    min-height: calc(2 * 1.45em + 6px);
     padding: 2px 0 4px;
     border: 0;
     outline: 0;
     resize: none;
+    overflow-y: hidden;
     background: none;
     font-size: 16px;
     line-height: 1.45;
+  }
+
+  /* On a phone screen, one line leaves more of the conversation in view. */
+  @media (max-width: 520px) {
+    textarea {
+      min-height: calc(1.45em + 6px);
+    }
   }
 
   textarea::placeholder {

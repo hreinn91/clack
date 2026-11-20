@@ -1,8 +1,4 @@
 <script lang="ts" module>
-  import '@fontsource/jetbrains-mono/400.css';
-  import '@fontsource/jetbrains-mono/700.css';
-
-  const FONT = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
   type Parts = {
     Terminal: typeof import('@xterm/xterm').Terminal;
@@ -109,7 +105,7 @@
       .then(({ Terminal, FitAddon, gpu }) => {
         if (gone || !host) return;
         const view = host;
-        const created = new Terminal({ fontFamily: FONT, fontSize: 13, cursorBlink: true, scrollback: 10_000, theme: theme.terminal });
+        const created = new Terminal({ fontFamily: theme.terminalFont, fontSize: 13, cursorBlink: true, scrollback: 10_000, theme: theme.terminal });
         const fitter = new FitAddon();
         created.loadAddon(fitter);
         created.open(view);
@@ -164,6 +160,21 @@
   // The terminal's colours follow the theme.
   $effect(() => {
     if (term) term.options.theme = theme.terminal;
+  });
+
+  // So does its font. The terminal measures the letters when the font is set, so it waits for the font to arrive.
+  $effect(() => {
+    const family = theme.terminalFont;
+    if (!term) return;
+    const shown = term;
+    void document.fonts
+      .load(`13px ${family}`)
+      .catch(() => undefined)
+      .then(() => {
+        if (term !== shown) return;
+        shown.options.fontFamily = family;
+        fit?.fit();
+      });
   });
 </script>
 

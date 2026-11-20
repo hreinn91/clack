@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AUTO, COLOR_FIELDS, FONTS, PRESETS, SIZES, previewVariables, theme } from '../lib/theme.svelte';
+  import { AUTO, CODE_FONTS, COLOR_FIELDS, FONTS, PRESETS, SIZES, previewVariables, theme } from '../lib/theme.svelte';
   import type { Colors, Preset } from '../lib/theme.svelte';
 
   let { onmenu }: { onmenu: () => void } = $props();
@@ -8,6 +8,15 @@
   const dark = PRESETS.find((p) => p.id === 'aubergine-dark')!;
 
   const groups = [...new Set(COLOR_FIELDS.map((field) => field.group))];
+
+  /** Which themes are shown: all, or only the dark or the light ones. */
+  let show = $state<'all' | 'dark' | 'light'>('all');
+  const shown = $derived(PRESETS.filter((p) => show === 'all' || (show === 'dark') === p.dark));
+  const FILTERS = [
+    { value: 'all', label: 'All', count: PRESETS.length },
+    { value: 'dark', label: 'Dark', count: PRESETS.filter((p) => p.dark).length },
+    { value: 'light', label: 'Light', count: PRESETS.filter((p) => !p.dark).length },
+  ] as const;
 
   function style(preset: Preset): string {
     return Object.entries(previewVariables(preset))
@@ -49,17 +58,29 @@
   <div class="page">
     <section>
       <h2>Themes</h2>
-      <p class="hint">Pick a look. It is remembered by this browser, so another device can have its own.</p>
+      <p class="hint">
+        Pick a look. Many are the colour schemes people share on r/unixporn for their desktops and editors, with the
+        terminal's colours to match. It is remembered by this browser, so another device can have its own.
+      </p>
+      <div class="filters" role="radiogroup" aria-label="Show themes">
+        {#each FILTERS as filter (filter.value)}
+          <button class="filter" role="radio" aria-checked={show === filter.value} onclick={() => (show = filter.value)}>
+            {filter.label} <span>{filter.count}</span>
+          </button>
+        {/each}
+      </div>
       <div class="grid" role="radiogroup" aria-label="Theme">
-        <button class="card" role="radio" aria-checked={theme.preset === AUTO} onclick={() => theme.choose(AUTO)}>
-          <span class="split">
-            {@render picture(light)}
-            {@render picture(dark)}
-          </span>
-          <span class="name">Aubergine, automatic</span>
-          <span class="note">Light or dark, as the device is set</span>
-        </button>
-        {#each PRESETS as preset (preset.id)}
+        {#if show === 'all'}
+          <button class="card" role="radio" aria-checked={theme.preset === AUTO} onclick={() => theme.choose(AUTO)}>
+            <span class="split">
+              {@render picture(light)}
+              {@render picture(dark)}
+            </span>
+            <span class="name">Aubergine, automatic</span>
+            <span class="note">Light or dark, as the device is set</span>
+          </button>
+        {/if}
+        {#each shown as preset (preset.id)}
           <button class="card" role="radio" aria-checked={theme.preset === preset.id} onclick={() => theme.choose(preset.id)}>
             {@render picture(preset)}
             <span class="name">{preset.name}</span>
@@ -117,6 +138,16 @@
           </div>
         </fieldset>
         <fieldset>
+          <legend>Code font</legend>
+          <div class="choices">
+            {#each CODE_FONTS as font (font.value)}
+              <button class="choice" aria-pressed={theme.codeFont === font.value} style:font-family={font.css} onclick={() => theme.setCodeFont(font.value)}>
+                {font.label}
+              </button>
+            {/each}
+          </div>
+        </fieldset>
+        <fieldset>
           <legend>Size</legend>
           <div class="choices">
             {#each SIZES as size (size.value)}
@@ -129,6 +160,9 @@
         The quick brown fox jumps over the lazy dog. A <a href="#/theme">link</a>, some <code>inline code</code>, and
         <strong>bold text</strong> look like this.
       </p>
+      <pre class="sample code-sample">const greet = (name: string) =&gt; `hello, ${'{'}name{'}'}!`; // 0O 1lI {'{}'} [] =&gt; != &lt;=
+for (let i = 0; i &lt; 3; i++) console.log(greet('unixporn'));</pre>
+      <p class="hint">The code font is also the terminal's on the Data page.</p>
     </section>
   </div>
 </div>
@@ -412,9 +446,39 @@
   }
 
   .text {
+    display: grid;
+    gap: 20px;
+  }
+
+  .filters {
     display: flex;
-    flex-wrap: wrap;
-    gap: 20px 40px;
+    gap: 6px;
+  }
+
+  .filter {
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: inherit;
+    font-size: 13.5px;
+  }
+
+  .filter span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .filter[aria-checked='true'] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .code-sample {
+    margin-top: 0;
+    overflow-x: auto;
+    font: 13.5px/1.55 var(--mono);
+    white-space: pre;
   }
 
   .choices {

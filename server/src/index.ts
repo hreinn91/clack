@@ -28,7 +28,7 @@ import { avatarVersion, MAX_AVATAR_BYTES, openAvatar, removeAvatar, saveAvatar }
 import { backend, backends, isProvider, startingProvider } from './agents/registry.ts';
 import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
-import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
+import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, gitDiff, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
 import { defaultPrefs } from './prefs.ts';
 import { registerWs } from './ws.ts';
@@ -119,6 +119,16 @@ app.get('/api/sessions/:id/git', async (req, reply) => {
     return { status: await gitDetail((req.params as { id: string }).id) };
   } catch (err) {
     return reply.code(400).send({ error: err instanceof Error ? err.message : 'git could not be asked.' });
+  }
+});
+
+// One changed file's diff, for the diff view: `area` is how the Changes list grouped it, `whole=1` for the whole file.
+app.get('/api/sessions/:id/git/diff', async (req, reply) => {
+  const q = req.query as { path?: string; from?: string; area?: string; whole?: string };
+  try {
+    return await gitDiff((req.params as { id: string }).id, { path: q.path, from: q.from, area: q.area }, q.whole === '1');
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'The diff could not be read.' });
   }
 });
 

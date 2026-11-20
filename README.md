@@ -492,6 +492,15 @@ reply ends, each time the list is opened, and every 20 seconds while the chat is
 (so a commit made in a terminal shows up too). clack asks git with the settings that
 would run other programs (filesystem monitors, external diff tools) switched off.
 
+Click a file in the list to see its changes. The diff opens over the chat, with removed lines
+over added ones, each with its number in the old and the new file, and the code coloured as
+code in the theme's own code colours (its terminal palette, so a light theme with a dark
+terminal shows code dark). **Changes** shows a few lines around each change, with how many
+lines are left out between them (click that number for the whole file); **Whole file** shows
+all of it. A new file is shown as all added, a file in conflict as it is with git's markers
+picked out, and a binary file or one over 1 MB is said to be one. Esc closes the diff and
+leaves the list open, to pick the next file.
+
 The figures are read again after every turn in any chat, when Claude Code reports that
 a limit has moved, and with **Refresh** on the page. They come from a part of the Agent
 SDK that is marked experimental, so a future version may change or remove it; clack
@@ -590,13 +599,33 @@ version of Claude Code could break it.
 
 **Theme** in the rail changes how clack looks. The choice is remembered per browser.
 
-- **Presets:** Aubergine (automatic light or dark, or either one fixed), One Dark,
-  Dracula, Solarized Dark and Light, Cyberpunk, Synthwave, Tokyo Night, Nord, Gruvbox,
-  Catppuccin Mocha and Latte. Each also colours the terminal.
+- **Presets:** 40 of them, many the colour schemes people share on r/unixporn, each with
+  matching terminal colours. **All / Dark / Light** above the list narrows it.
+  - Aubergine (automatic light or dark, or either one fixed)
+  - Amethyst and Ultraviolet, two dark purples
+  - Dracula, Dracula Midnight (darker), Dracula Soft (lower contrast), Dracula Pink and
+    Dracula Light
+  - Catppuccin Mocha, Macchiato, Frappé and Latte
+  - Rosé Pine, Rosé Pine Moon and Rosé Pine Dawn
+  - Tokyo Night, Tokyo Night Storm and Tokyo Night Day
+  - Gruvbox and Gruvbox Light; Everforest and Everforest Light
+  - Kanagawa and Kanagawa Dragon; Ayu Mirage and Ayu Light
+  - Nord, One Dark, Solarized Dark and Light, Monokai Pro, Nightfox, Oxocarbon,
+    Palenight, Horizon, Cyberpunk and Synthwave
+  - Phosphor and Amber, two old CRT terminal looks
 - **Colours:** any of a theme's main colours can be changed with a colour picker or a
   hex code; hover shades and soft backgrounds are worked out from them. **Back to …**
   undoes the changes, and picking another preset starts over from its colours.
-- **Text:** the font (Lato, system, serif or monospace) and the size of message text.
+- **Text:**
+  - **Font**, for everything but code: Lato, Inter, Geist, IBM Plex Sans, Space Grotesk,
+    Ubuntu, Atkinson Hyperlegible, Lexend, the system font, serif, or JetBrains Mono.
+  - **Code font**, for code in messages and the terminal on the data page: the system's
+    monospace font, JetBrains Mono, Fira Code, Iosevka, IBM Plex Mono, Cascadia Code, Victor
+    Mono, Geist Mono, Commit Mono, Monaspace Neon, Source Code Pro or Space Mono. With the
+    system font the terminal uses JetBrains Mono.
+  - **Size** of message text.
+- **Fonts are bundled:** they come with the app, so nothing is fetched from elsewhere; a
+  browser only downloads the ones it shows.
 
 ## Attaching files
 
