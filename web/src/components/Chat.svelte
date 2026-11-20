@@ -1,5 +1,7 @@
 <script lang="ts">
-  import type { Item, Provider } from '../../../shared/protocol';
+  import { tick } from 'svelte';
+  import ChatPlan from './ChatPlan.svelte';
+  import type { Item, PlanItem, Provider } from '../../../shared/protocol';
   import { authorName, dayKey, dayLabel, folderPlace, isOutside, modelName, providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import ActionMenu from './ActionMenu.svelte';
@@ -16,6 +18,25 @@
   import ProviderMark from './ProviderMark.svelte';
 
   let { onmenu }: { onmenu: () => void } = $props();
+
+  const plans = $derived(app.items.filter((item): item is PlanItem => item.kind === 'plan' && !!(item.markdown || item.steps.length)));
+  const latest = $derived(plans.at(-1));
+  let planOpen = $state(false);
+  let planButton = $state<HTMLButtonElement>();
+  let backButton = $state<HTMLButtonElement>();
+
+  async function togglePlan(open: boolean) {
+    planOpen = open;
+    await tick();
+    (open ? backButton : planButton)?.focus();
+  }
+
+  $effect(() => {
+    app.sessionId;
+    planOpen = false;
+  });
+
+  $effect(() => { if (!latest || app.changesOpen) planOpen = false; });
 
   let scroller = $state<HTMLElement>();
   let thread = $state<HTMLElement>();
@@ -109,10 +130,12 @@
     // The agent before the first switch, if the chat ever switched; otherwise the one it runs on.
     let provider: Provider = app.items.find((item) => item.kind === 'divider')?.from ?? app.provider;
     for (const item of app.items) {
+      if (item.kind === 'tool' && item.planId && !item.result?.isError) continue;
+      if (item.kind === 'plan' && !item.steps.length && !item.markdown) continue;
       if (item.kind === 'divider') provider = item.to;
       const kind = item.kind === 'user' ? 'person' : item.kind === 'notice' ? 'system' : item.kind === 'divider' ? 'switch' : 'model';
       const last = out.at(-1);
-      if (last?.kind === kind && kind !== 'switch' && kind !== 'person') {
+      if (last?.kind === kind && kind !== 'switch' && kind !== 'person' && item.kind !== 'plan' && last.items[0]?.kind !== 'plan') {
         last.items.push(item);
         continue;
       }
@@ -144,9 +167,10 @@
   const streamingText = $derived(app.drafts.filter(draft => draft.kind === 'text').map(draft => draft.text).join('\n\n'));
 
   function messageText(group: Group, streaming: string): string {
-    const parts = group.items.flatMap(item =>
-      item.kind === 'user' || (item.kind === 'text' && !item.parent) ? [item.text] : []
-    );
+    const parts = group.items.flatMap(item => {
+      if (item.kind === 'plan' && item.markdown) return [item.markdown];
+      return item.kind === 'user' || (item.kind === 'text' && !item.parent) ? [item.text] : [];
+    });
     if (streaming) parts.push(streaming);
     return parts.join('\n\n');
   }
@@ -208,6 +232,12 @@
       <span class="archived">Archived</span>
     {/if}
   </p>
+  {#if latest}
+    <button class="plan-tab" aria-pressed={planOpen} bind:this={planButton} onclick={() => togglePlan(!planOpen)}>
+      <span aria-hidden="true">📋</span>
+      Plan{#if latest.steps.length}<span class="plan-count">{latest.steps.filter(step => step.status === 'completed').length}/{latest.steps.length}</span>{/if}
+    </button>
+  {/if}
   {#if summary && !gone}<ChangesPanel />{/if}
   {#if !app.connected}<span class="offline">Reconnecting…</span>{/if}
   {#if summary}<ActionMenu label="More for this chat" {actions} />{/if}
@@ -229,10 +259,19 @@
   {/if}
 
   {#each app.pending as request (request.id)}
+    {#if !request.planId}<PermissionCard {request} />{/if}
+  {/each}
+{/snippet}
+
+{#snippet planWithApproval(plan: PlanItem)}
+  <ChatPlan {plan} />
+  {#each app.pending.filter(request => request.planId === plan.id) as request (request.id)}
     <PermissionCard {request} />
   {/each}
 {/snippet}
 
+<div class="workspace">
+<div class="conversation" class:covered={planOpen && latest} inert={planOpen && !!latest}>
 <div class="scroll" bind:this={scroller} {onscroll}>
   <div class="thread" bind:this={thread}>
     {#if app.opening}
@@ -267,7 +306,11 @@
         <Message kind={group.kind} name={group.name} ts={group.ts} provider={group.provider}
           copyText={messageText(group, group.kind === 'model' && index === groups.length - 1 ? streamingText : '')}>
           {#each group.items as item (item.id)}
-            <Entry {item} />
+            {#if item.kind === 'plan'}
+              {@render planWithApproval(item)}
+            {:else}
+              <Entry {item} />
+            {/if}
           {/each}
           {#if live && group.kind === 'model' && index === groups.length - 1}
             {@render liveOutput()}
@@ -306,8 +349,35 @@
 {/if}
 
 <Composer />
+</div>
+{#if planOpen && latest}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <section class="plan-reader" aria-label="Latest plan" onkeydown={(event) => {
+    if (event.key === 'Escape') { event.stopPropagation(); void togglePlan(false); }
+  }}>
+    <div class="reader-bar">
+      <button class="btn ghost" bind:this={backButton} onclick={() => togglePlan(false)}>← Back to chat</button>
+    </div>
+    <div class="reader-body">{@render planWithApproval(latest)}</div>
+  </section>
+{/if}
+</div>
 
 <style>
+  .workspace, .conversation, .plan-reader { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+  .workspace { position: relative; }
+  .covered { visibility: hidden; }
+  .plan-reader { position: absolute; inset: 0; background: var(--bg); }
+  .reader-bar { padding: 6px 14px; border-bottom: 1px solid var(--border); }
+  .reader-body { display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 16px; }
+  .plan-tab {
+    display: inline-flex; align-items: center; flex: none; gap: 5px;
+    padding: 2px 6px; border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text); background: transparent; font-size: 12px; font-weight: 600;
+  }
+  .plan-tab:hover, .plan-tab[aria-pressed="true"] { background: var(--accent-soft); }
+  .plan-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
   h1 {
     flex: 1 1 0;
     min-width: 0;

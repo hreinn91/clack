@@ -1,3 +1,4 @@
+import { readPlans } from '../../plans.ts';
 import {
   archiveSession,
   deleteSession,
@@ -54,7 +55,7 @@ export const claude: AgentBackend = {
 
   async history(sessionId): Promise<Item[]> {
     const [messages, efforts] = await Promise.all([getSessionMessages(sessionId), readEfforts(sessionId)]);
-    return itemsFromHistory(messages, efforts);
+    return itemsFromHistory(messages, efforts, readPlans('claude', sessionId));
   },
 
   rename: (sessionId, title) => renameSession(sessionId, title),

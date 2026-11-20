@@ -804,6 +804,11 @@ class AppState {
       case 'draft':
         this.drafts.push(event.draft);
         break;
+      case 'plan_delta': {
+        const plan = this.items.find(item => item.id === event.id);
+        if (plan?.kind === 'plan') plan.markdown = (plan.markdown ?? '') + event.text;
+        break;
+      }
       case 'draft_delta': {
         const draft = this.drafts.find((d) => d.id === event.id);
         if (draft) draft.text += event.text;

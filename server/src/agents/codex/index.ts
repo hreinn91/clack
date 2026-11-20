@@ -1,3 +1,4 @@
+import { readPlans } from '../../plans.ts';
 import type { Capabilities, Item } from '../../../../shared/protocol.ts';
 import { config } from '../../config.ts';
 import { existingFolder } from '../../folders.ts';
@@ -155,7 +156,7 @@ export const codex: AgentBackend = {
       cursor = answer.nextCursor;
       if (!cursor) break;
     }
-    return itemsFromTurns(turns, thread.model, thread.reasoningEffort);
+    return itemsFromTurns(turns, thread.model, thread.reasoningEffort, readPlans('codex', sessionId));
   },
 
   rename: async (sessionId, title) => {

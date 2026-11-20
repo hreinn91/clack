@@ -81,6 +81,9 @@ npm start
 The server prints its addresses and an access token. Open the "Local network" address on
 your other device and enter the token once; the browser stays signed in after that.
 
+Run `node -v` in the shell that starts Clack to verify it uses Node 24 or newer.
+The UI build can succeed on an older version, while the server runs TypeScript directly.
+
 To run it in a container instead, see [Docker](#docker).
 
 ## Docker
@@ -479,7 +482,12 @@ A chat with background work still going is not shut down when it sits idle, sinc
 would end the work. When a background agent is done, the chat says so in a short note,
 and Claude usually replies to what it found.
 
-**Changes** beside those two appears when the chat's folder is in a git repository
+When Claude or Codex reports a plan, its steps appear in the conversation and update
+as the agent works. In Plan mode, the proposed plan appears as Markdown. Select
+**Plan** in the chat header to read the latest proposal or checklist, then **Back
+to chat** to return to your place. Earlier plans stay in the transcript.
+
+**Changes** beside those controls appears when the chat's folder is in a git repository
 under `data/sessions`. With everything committed it reads **No changes** and does
 nothing. With uncommitted changes it shows how many files and how many lines were
 added and removed, and the branch in the message box gets a `*`. Clicking **Changes**

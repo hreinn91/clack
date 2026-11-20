@@ -1,8 +1,9 @@
+import { restoreClaudePlans } from './plans.ts';
 import { readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SessionMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { EffortLevel, Item, Stamp } from '../../../../shared/protocol.ts';
+import type { EffortLevel, Item, PlanItem, Stamp } from '../../../../shared/protocol.ts';
 
 /** A content block as it appears in Anthropic API messages. */
 export type Block = { type: string; [key: string]: unknown };
@@ -104,8 +105,9 @@ export function agentReport(agentType: string | undefined, status: 'completed' |
 }
 
 /** Rebuilds a transcript from the messages Claude Code saved on disk. */
-export function itemsFromHistory(messages: SessionMessage[], efforts: Map<string, EffortLevel> = new Map()): Item[] {
+export function itemsFromHistory(messages: SessionMessage[], efforts: Map<string, EffortLevel> = new Map(), saved: Record<string, PlanItem> = {}): Item[] {
   const items: Item[] = [];
+  const results = new Map<string, unknown>();
   const tools = new Map<string, Extract<Item, { kind: 'tool' }>>();
 
   for (const msg of messages) {
@@ -125,16 +127,20 @@ export function itemsFromHistory(messages: SessionMessage[], efforts: Map<string
     } else if (msg.type === 'user') {
       // Messages Claude Code adds itself (an agent's report, a finished task, reminders) are saved as
       // the user's, marked like this; they are not something the person wrote.
-      const saved = msg as { isMeta?: unknown; origin?: { kind?: unknown; name?: unknown }; promptSource?: unknown };
-      const injected = saved.isMeta === true || saved.origin !== undefined || saved.promptSource === 'system';
-      if (saved.origin?.kind === 'peer') {
-        const name = typeof saved.origin.name === 'string' ? saved.origin.name : undefined;
+      const source = msg as { isMeta?: unknown; origin?: { kind?: unknown; name?: unknown }; promptSource?: unknown };
+      const injected = source.isMeta === true || source.origin !== undefined || source.promptSource === 'system';
+      if (source.origin?.kind === 'peer') {
+        const name = typeof source.origin.name === 'string' ? source.origin.name : undefined;
         items.push({ kind: 'notice', id: msg.uuid, level: 'info', text: agentReport(name, 'completed'), ...when });
       }
       const typed: string[] = [];
       for (const block of blocksOf(content)) {
         if (block.type === 'tool_result') {
           const tool = tools.get(String(block.tool_use_id));
+          if (tool?.name === 'ExitPlanMode' || tool?.name === 'TaskCreate' || tool?.name === 'TaskUpdate') {
+            const message = msg as { toolUseResult?: unknown; tool_use_result?: unknown };
+            results.set(tool.id, message.toolUseResult ?? message.tool_use_result);
+          }
           if (tool) tool.result = { text: toolResultText(block.content), isError: block.is_error === true };
         } else if (block.type === 'text' && typeof block.text === 'string' && !msg.parent_tool_use_id && !injected) {
           const text = cleanUserText(block.text);
@@ -144,5 +150,5 @@ export function itemsFromHistory(messages: SessionMessage[], efforts: Map<string
       if (typed.length) items.push({ kind: 'user', id: msg.uuid, text: typed.join('\n\n'), ...when });
     }
   }
-  return items;
+  return restoreClaudePlans(items, saved, results);
 }

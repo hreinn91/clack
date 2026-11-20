@@ -12,6 +12,9 @@ import type {
   PermissionMode,
   PermissionRequest,
   PlanUsage,
+  PlanContent,
+  PlanItem,
+  Stamp,
   Provider,
 } from '../../../shared/protocol.ts';
 
@@ -22,6 +25,10 @@ import type {
 // its models, plan limits, tools, and the conversations it has saved.
 
 export type { Provider };
+
+export function planId(provider: Provider, turnId: string): string {
+  return `${provider}:${turnId}:plan`;
+}
 
 export type ToolItem = Extract<Item, { kind: 'tool' }>;
 
@@ -72,6 +79,8 @@ export interface RunHost {
   addItem(item: Item, replaces?: string): void;
   /** Puts an item that is already in the transcript in again, changed (a todo list that moved on). */
   updateItem(item: Item): void;
+  updatePlan(turnId: string, patch: Partial<PlanContent>, stamp?: Stamp): PlanItem;
+  appendPlan(turnId: string, text: string, stamp?: Stamp): void;
   tool(id: string): ToolItem | undefined;
   toolResult(id: string, text: string, isError: boolean): void;
 

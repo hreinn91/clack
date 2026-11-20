@@ -85,8 +85,7 @@ export class CodexRun implements AgentRun {
   /** Streaming drafts, by Codex item id. */
   private drafts = new Map<string, string>();
   private pending = new Map<string, Pending>();
-  /** The todo list of the current turn, shown as one card that changes as the work moves on. */
-  private planItem: string | undefined;
+  private partialPlanTurn: string | undefined;
   private usage: ThreadTokenUsage | undefined;
   private terminals = new Map<string, BackgroundTask & { processId: string }>();
   private listener: ThreadListener;
@@ -168,7 +167,6 @@ export class CodexRun implements AgentRun {
     for (const path of attachedPictures(text, host.cwd)) input.push({ type: 'localImage', path });
     const model = await this.model();
     this.interrupting = false;
-    this.planItem = undefined;
     const started = await appServer.request<{ turn: Turn }>('turn/start', {
       threadId,
       input,
@@ -253,6 +251,7 @@ export class CodexRun implements AgentRun {
   }
 
   shutdown(): void {
+    this.savePartialPlan();
     if (this.threadId && this.loaded) {
       appServer.unlisten(this.threadId, this.listener);
       void appServer.request('thread/unsubscribe', { threadId: this.threadId }).catch(() => undefined);
@@ -283,6 +282,12 @@ export class CodexRun implements AgentRun {
     return stamp;
   }
 
+  private savePartialPlan(): void {
+    if (!this.partialPlanTurn) return;
+    this.host.updatePlan(this.partialPlanTurn, {});
+    this.partialPlanTurn = undefined;
+  }
+
   private notify(method: string, params: Record<string, unknown>): void {
     const host = this.host;
     switch (method) {
@@ -293,7 +298,9 @@ export class CodexRun implements AgentRun {
 
       case 'item/started': {
         const item = params.item as ThreadItem;
-        if (item.type === 'agentMessage' || item.type === 'plan') this.drafts.set(item.id, host.startDraft('text', ''));
+        if (item.type === 'plan' && typeof params.turnId === 'string') {
+          host.updatePlan(params.turnId, { markdown: item.text }, this.stamp());
+        } else if (item.type === 'agentMessage') this.drafts.set(item.id, host.startDraft('text', ''));
         else if (item.type === 'reasoning') this.drafts.set(item.id, host.startDraft('thinking', ''));
         else {
           const tool = toolOf(item, this.stamp());
@@ -302,8 +309,14 @@ export class CodexRun implements AgentRun {
         break;
       }
 
-      case 'item/agentMessage/delta':
       case 'item/plan/delta':
+        if (typeof params.turnId === 'string' && typeof params.delta === 'string' && params.delta) {
+          this.partialPlanTurn = params.turnId;
+          host.appendPlan(params.turnId, params.delta, this.stamp());
+        }
+        break;
+
+      case 'item/agentMessage/delta':
       case 'item/reasoning/summaryTextDelta': {
         const id = this.drafts.get(String(params.itemId));
         if (id) host.appendDraft(id, String(params.delta ?? ''));
@@ -315,6 +328,11 @@ export class CodexRun implements AgentRun {
         const draft = this.drafts.get(item.id);
         this.drafts.delete(item.id);
         if (item.type === 'userMessage') break;
+        if (item.type === 'plan' && typeof params.turnId === 'string') {
+          host.updatePlan(params.turnId, { markdown: item.text }, this.stamp());
+          this.partialPlanTurn = undefined;
+          break;
+        }
         const tool = host.tool(item.id);
         if (tool) {
           const result = resultOf(item);
@@ -332,12 +350,12 @@ export class CodexRun implements AgentRun {
 
       case 'turn/plan/updated': {
         const steps = (params.plan as { step: string; status: string }[]) ?? [];
-        const todos = steps.map((step) => ({
-          content: step.step,
-          status: step.status === 'inProgress' ? 'in_progress' : step.status,
-        }));
-        const id = (this.planItem ??= `${String(params.turnId)}:plan`);
-        host.updateItem({ kind: 'tool', id, name: 'TodoWrite', input: { todos }, result: { text: '', isError: false }, ...this.stamp() });
+        if (typeof params.turnId === 'string') {
+          host.updatePlan(params.turnId, { steps: steps.map(({ step, status }) => ({
+            label: step,
+            status: status === 'completed' ? 'completed' : status === 'inProgress' ? 'in_progress' : 'pending',
+          })) }, this.stamp());
+        }
         break;
       }
 
@@ -373,6 +391,7 @@ export class CodexRun implements AgentRun {
 
       case 'turn/completed': {
         const turn = params.turn as Turn;
+        this.savePartialPlan();
         for (const draft of this.drafts.values()) host.endDraft(draft);
         this.drafts.clear();
         host.clearDrafts();
@@ -380,7 +399,6 @@ export class CodexRun implements AgentRun {
         else if (turn.status === 'failed') host.notice('error', turn.error?.message ?? 'The turn failed.');
         this.interrupting = false;
         this.turnId = undefined;
-        this.planItem = undefined;
         host.turnEnded();
         void refreshCodexUsage();
         void this.lookAtTerminals();
@@ -589,6 +607,7 @@ export class CodexRun implements AgentRun {
   /** The app-server went away under the chat. */
   private closed(): void {
     this.loaded = false;
+    this.savePartialPlan();
     if (this.turnId) this.host.notice('error', 'Codex stopped in the middle of this turn.');
     this.ended();
   }

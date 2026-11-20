@@ -1,4 +1,5 @@
-import type { Item, Stamp } from '../../../../shared/protocol.ts';
+import { planId } from '../types.ts';
+import type { Item, PlanItem, Stamp } from '../../../../shared/protocol.ts';
 import type { ThreadItem, Turn } from './protocol.ts';
 
 // Codex's thread items as clack's transcript items. Tools take the names the
@@ -112,8 +113,6 @@ export function itemsOf(item: ThreadItem, stamp: Stamp = {}): Item[] {
     }
     case 'agentMessage':
       return item.text.trim() ? [{ kind: 'text', id: item.id, text: item.text, ...stamp }] : [];
-    case 'plan':
-      return item.text.trim() ? [{ kind: 'text', id: item.id, text: `**Plan**\n\n${item.text}`, ...stamp }] : [];
     case 'reasoning': {
       const text = (item.summary.length ? item.summary : item.content).join('\n\n').trim();
       return text ? [{ kind: 'thinking', id: item.id, text, ...stamp }] : [];
@@ -134,10 +133,13 @@ export function itemsOf(item: ThreadItem, stamp: Stamp = {}): Item[] {
 }
 
 /** A saved thread's turns as a transcript, signed with the model the thread ran. */
-export function itemsFromTurns(turns: Turn[], model: string | null, effort: string | null): Item[] {
+export function itemsFromTurns(turns: Turn[], model: string | null, effort: string | null, saved: Record<string, PlanItem> = {}): Item[] {
   const items: Item[] = [];
   for (const turn of turns) {
     const turnTs = turn.startedAt ? turn.startedAt * 1000 : undefined;
+    const id = planId('codex', turn.id);
+    let plan = saved[id];
+    let at = -1;
     for (const item of turn.items) {
       const ts = item.completedAtMs ?? item.startedAtMs ?? turnTs;
       const stamp: Stamp = { ...(ts ? { ts } : {}) };
@@ -145,8 +147,15 @@ export function itemsFromTurns(turns: Turn[], model: string | null, effort: stri
         if (model) stamp.model = model;
         if (effort) stamp.effort = effort;
       }
-      items.push(...itemsOf(item, stamp));
+      if (item.type === 'plan' && item.text.trim()) {
+        plan = { ...stamp, ...plan, kind: 'plan', id, steps: plan?.steps ?? [], markdown: item.text };
+        if (at === -1) at = items.length;
+      } else {
+        if (plan && at === -1 && item.type !== 'userMessage' && plan.ts !== undefined && ts !== undefined && ts >= plan.ts) at = items.length;
+        items.push(...itemsOf(item, stamp));
+      }
     }
+    if (plan) items.splice(at === -1 ? items.length : at, 0, plan);
     if (turn.status === 'interrupted') items.push({ kind: 'notice', id: `${turn.id}:stopped`, level: 'info', text: 'Stopped.', ...(turnTs ? { ts: turnTs } : {}) });
     else if (turn.status === 'failed' && turn.error) items.push({ kind: 'notice', id: `${turn.id}:failed`, level: 'error', text: turn.error.message, ...(turnTs ? { ts: turnTs } : {}) });
   }

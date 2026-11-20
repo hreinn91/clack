@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --env-file-if-exists=../.env src/index.ts",
+    "prestart": "node -e \"if (+process.versions.node.split('.')[0] < 24) { console.error('Clack requires Node.js 24 or newer. Found ' + process.version + '.'); process.exit(1) }\"",
     "start": "node --env-file-if-exists=../.env src/index.ts",
     "check": "tsc -p tsconfig.json",
     "codex:types": "codex app-server generate-ts --experimental --out codex-types",

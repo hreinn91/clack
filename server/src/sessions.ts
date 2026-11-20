@@ -11,6 +11,9 @@ import type {
   GitSummary,
   Item,
   LogKind,
+  PlanContent,
+  PlanItem,
+  Stamp,
   PermissionDecision,
   PermissionMode,
   PermissionRequest,
@@ -26,6 +29,8 @@ import { backend, backends } from './agents/registry.ts';
 import type { AgentRun, RunHost, StoredSession, ToolItem } from './agents/types.ts';
 import { allRecords, chatOf, forgetChat, isEarlierSegment, noteChat, recordOf, saveSegments, segmentsOf } from './chats.ts';
 import type { Segment } from './chats.ts';
+import { planId } from './agents/types.ts';
+import { forgetPlans, savePlan } from './plans.ts';
 import { config } from './config.ts';
 import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideRoots, isFolder, recreateFolder, removeFolder, removeRoot } from './folders.ts';
 import { gitFileDiff, gitStatus } from './git.ts';
@@ -498,6 +503,36 @@ export class LiveSession implements RunHost {
     this.emit({ t: 'item', item, replaces: item.id });
   }
 
+  private turnPlan(turnId: string, stamp: Stamp): PlanItem {
+    const id = planId(this.provider, turnId);
+    const existing = this.items.findLast(item => item.id === id);
+    return existing?.kind === 'plan' ? existing : { kind: 'plan', id, steps: [], ts: Date.now(), ...stamp };
+  }
+
+  updatePlan(turnId: string, patch: Partial<PlanContent>, stamp: Stamp = {}): PlanItem {
+    const item = { ...this.turnPlan(turnId, stamp), ...patch };
+    this.updateItem(item);
+    if (this.run.sessionId) {
+      try {
+        savePlan(this.provider, this.run.sessionId, item);
+      } catch (err) {
+        this.log('notice', `Could not save plan progress: ${String(err)}`, true);
+      }
+    }
+    return item;
+  }
+
+  appendPlan(turnId: string, text: string, stamp: Stamp = {}): void {
+    if (!text) return;
+    const item = this.turnPlan(turnId, stamp);
+    if (item.markdown === undefined) {
+      this.updateItem({ ...item, markdown: text });
+    } else {
+      item.markdown += text;
+      this.emit({ t: 'plan_delta', id: item.id, text });
+    }
+  }
+
   tool(id: string): ToolItem | undefined {
     return this.tools.get(id);
   }
@@ -726,7 +761,10 @@ export async function deleteChat(sessionId: string): Promise<void> {
   const session = await openSession(sessionId);
   await session.discard();
   live.delete(sessionId);
-  for (const part of session.parts) await backend(part.provider).remove(part.sessionId);
+  for (const part of session.parts) {
+    await backend(part.provider).remove(part.sessionId);
+    forgetPlans(part.provider, part.sessionId);
+  }
   forgetSession(sessionId);
   forgetChat(sessionId);
   bus.emit('sessions_changed');

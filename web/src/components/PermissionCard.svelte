@@ -128,7 +128,7 @@
   {:else}
     <h3>{isPlan ? `${agent} has a plan. Go ahead with it?` : (request.title ?? `Allow ${agent} to use ${request.toolName}?`)}</h3>
     {#if description}<p class="desc">{description}</p>{/if}
-    <ToolInput name={request.toolName} input={request.input} />
+    {#if !request.planId}<ToolInput name={request.toolName} input={request.input} />{/if}
     <div class="actions">
       <button class="btn" onclick={() => app.decide(request.id, 'deny')}>{isPlan ? 'Keep planning' : 'Deny'}</button>
       {#if request.canAlways && !isPlan}

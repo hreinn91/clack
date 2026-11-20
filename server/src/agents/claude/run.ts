@@ -1,3 +1,5 @@
+import { ClaudePlans } from './plans.ts';
+import { readPlans } from '../../plans.ts';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -90,6 +92,8 @@ export class ClaudeRun implements AgentRun {
   private choseAuto = false;
   /** Replies added while no effort was chosen, by message uuid: what they ran at is looked up when the turn ends. */
   private unsigned = new Map<string, Item[]>();
+  private plans = new ClaudePlans();
+  private approvalPlan: { toolId: string; planId: string } | undefined;
   private board = new TaskBoard();
   private host: RunHost;
 
@@ -97,6 +101,9 @@ export class ClaudeRun implements AgentRun {
     this.host = host;
     this.sessionId = sessionId;
     this.onDisk = saved;
+    if (saved) {
+      for (const plan of Object.values(readPlans('claude', sessionId))) this.plans.recall(plan.steps);
+    }
   }
 
   get alive(): boolean {
@@ -116,6 +123,8 @@ export class ClaudeRun implements AgentRun {
   }
 
   async prompt(id: string, text: string): Promise<void> {
+    this.plans.start(id);
+    this.approvalPlan = undefined;
     this.start();
     this.input!.push({ type: 'user', uuid: id as SDKUserMessage['uuid'] & string, parent_tool_use_id: null, message: { role: 'user', content: text } });
   }
@@ -268,14 +277,26 @@ export class ClaudeRun implements AgentRun {
         }
         const added = assistantItems(msg.uuid, msg.message.content, parent, stamp);
         if (!parent && !host.effort) this.unsigned.set(msg.uuid, [...(this.unsigned.get(msg.uuid) ?? []), ...added]);
-        for (const item of added) host.addItem(item, parent ? undefined : host.takeDraft(item.kind));
+        for (const item of added) {
+          if (item.kind === 'tool' && item.id === this.approvalPlan?.toolId) item.planId = this.approvalPlan.planId;
+          host.addItem(item, parent ? undefined : host.takeDraft(item.kind));
+        }
         break;
       }
 
       case 'user':
         for (const block of blocksOf(msg.message.content)) {
           if (block.type !== 'tool_result') continue;
-          host.toolResult(String(block.tool_use_id), toolResultText(block.content), block.is_error === true);
+          const id = String(block.tool_use_id);
+          host.toolResult(id, toolResultText(block.content), block.is_error === true);
+          const tool = host.tool(id);
+          if (tool && this.plans.turnId) {
+            const patch = this.plans.result(tool, msg.tool_use_result);
+            if (patch) {
+              const plan = host.updatePlan(this.plans.turnId, patch, { model: tool.model, effort: tool.effort, ts: tool.ts });
+              host.updateItem({ ...tool, planId: plan.id });
+            }
+          }
         }
         break;
 
@@ -491,6 +512,16 @@ export class ClaudeRun implements AgentRun {
         canAlways: !!opts.suggestions?.length && !opts.suppressAlwaysAllowRule,
         alwaysLabel: 'Always allow',
       };
+      if (toolName === 'ExitPlanMode' && !opts.agentID && this.plans.turnId) {
+        const tool = this.host.tool(opts.toolUseID);
+        const markdown = input.plan;
+        if (typeof markdown === 'string' && markdown.trim()) {
+          const plan = this.host.updatePlan(this.plans.turnId, { markdown });
+          request.planId = plan.id;
+          this.approvalPlan = { toolId: opts.toolUseID, planId: plan.id };
+          if (tool) this.host.updateItem({ ...tool, planId: plan.id });
+        }
+      }
       const onAbort = () => finish({ behavior: 'deny', message: 'Cancelled.' });
       const finish = (result: PermissionResult) => {
         if (!this.pending.delete(id)) return;

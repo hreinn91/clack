@@ -54,11 +54,15 @@ export function buildHandover(items: Item[], from: Provider, model: string | und
       case 'user':
         lines.push(`\n### The person\n${recent ? stripHandover(item.text).text : cut(stripHandover(item.text).text, 600)}`);
         break;
+      case 'plan':
+        if (item.markdown) lines.push(cut(item.markdown, recent ? BUDGET : 800));
+        for (const step of item.steps) lines.push(`- [${step.status}] ${step.label}`);
+        break;
       case 'text':
         if (!item.parent) lines.push(`\n### ${who}\n${recent ? item.text.trim() : cut(item.text, 800)}`);
         break;
       case 'tool':
-        if (!item.parent) lines.push(toolLine(item));
+        if (!item.parent && !item.planId) lines.push(toolLine(item));
         break;
       case 'divider':
         lines.push(`\n(The chat moved from ${name(item.from)} to ${name(item.to)} here.)`);

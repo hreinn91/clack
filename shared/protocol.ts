@@ -43,9 +43,14 @@ export type ProviderModels = {
  */
 export type Stamp = { ts?: number; model?: string; effort?: EffortLevel };
 
+export type PlanStep = { label: string; status: 'pending' | 'in_progress' | 'completed'; taskId?: string };
+export type PlanContent = { steps: PlanStep[]; markdown?: string };
+export type PlanItem = Stamp & PlanContent & { kind: 'plan'; id: string };
+
 /** One entry in a conversation transcript. */
 export type Item = Stamp &
   (
+    | PlanItem
     | { kind: 'user'; id: string; text: string }
     | { kind: 'text'; id: string; text: string; parent?: string }
     | { kind: 'thinking'; id: string; text: string; parent?: string }
@@ -54,6 +59,8 @@ export type Item = Stamp &
         id: string;
         name: string;
         input: unknown;
+        /** This tool call is displayed through its plan entry. */
+        planId?: string;
         /** Set when the call was made by a subagent: the id of the tool call that spawned it. */
         parent?: string;
         result?: { text: string; isError: boolean };
@@ -74,6 +81,7 @@ export type PermissionRequest = {
   description?: string;
   reason?: string;
   /** Whether "always allow" can be offered for this request. */
+  planId?: string;
   canAlways: boolean;
   /** What the "always" button says; the providers mean different things by it. */
   alwaysLabel?: string;
@@ -265,6 +273,7 @@ export type LogPage = {
 export type SessionEvent =
   | { t: 'item'; item: Item; replaces?: string }
   | { t: 'draft'; draft: Draft }
+  | { t: 'plan_delta'; id: string; text: string }
   | { t: 'draft_delta'; id: string; text: string }
   | { t: 'draft_end'; id: string }
   | { t: 'drafts_clear' }
