@@ -5,7 +5,8 @@ import { logBus } from './log.ts';
 import { bus, isEffort, isPermissionMode, openSession } from './sessions.ts';
 import type { LiveSession, Listener } from './sessions.ts';
 import { getTerminal, terminalBus } from './terminal.ts';
-import { usageBus } from './usage.ts';
+import { usageBus } from './agents/bus.ts';
+import { isProvider } from './agents/registry.ts';
 
 const MAX_PROMPT_CHARS = 200_000;
 
@@ -106,7 +107,9 @@ export function registerWs(app: FastifyInstance): void {
           const effort = msg.effort ?? null;
           if (model !== null && (typeof model !== 'string' || !model || model.length > 100)) throw new Error('Unknown model.');
           if (effort !== null && !isEffort(effort)) throw new Error('Unknown effort level.');
-          await target(msg.sessionId).configure({ model, effort });
+          const session = target(msg.sessionId);
+          const provider = isProvider(msg.provider) ? msg.provider : session.provider;
+          await session.configure({ provider, model, effort });
           break;
         }
       }

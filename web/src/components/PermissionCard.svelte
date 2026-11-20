@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PermissionRequest } from '../../../shared/protocol';
+  import { providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import ToolInput from './ToolInput.svelte';
 
@@ -19,6 +20,15 @@
       : null,
   );
   const isPlan = $derived(request.toolName === 'ExitPlanMode');
+  const agent = $derived(providerName(app.provider));
+  /** An MCP server asking for details: a form rather than yes or no. */
+  const form = $derived(request.form);
+  let values = $state<Record<string, string>>({});
+  const formComplete = $derived(form?.fields.every((field) => !field.required || (values[field.name] ?? '') !== '') ?? true);
+
+  function submitForm() {
+    app.decide(request.id, 'allow', { ...values });
+  }
   // For file tools the description is just the path, which the preview below already shows.
   const description = $derived(
     request.description && !String(request.input.file_path ?? '').endsWith(request.description)
@@ -52,8 +62,38 @@
   }
 </script>
 
-<section class="card" aria-label="Claude needs your input">
-  {#if questions}
+<section class="card" aria-label={`${agent} needs your input`}>
+  {#if form}
+    <h3>{request.title ?? 'Some details are needed'}</h3>
+    {#if form.message}<p class="desc">{form.message}</p>{/if}
+    {#if form.url}
+      <p class="desc">Open <a href={form.url} target="_blank" rel="noopener noreferrer">{form.url}</a>, finish there, then carry on here.</p>
+    {/if}
+    {#each form.fields as field (field.name)}
+      <label class="field">
+        <span>{field.label}{field.required ? '' : ' (optional)'}</span>
+        {#if field.description}<small>{field.description}</small>{/if}
+        {#if field.type === 'choice' && field.options}
+          <select bind:value={values[field.name]}>
+            <option value="">Choose…</option>
+            {#each field.options as option (option)}<option value={option}>{option}</option>{/each}
+          </select>
+        {:else if field.type === 'boolean'}
+          <select bind:value={values[field.name]}>
+            <option value="">Choose…</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        {:else}
+          <input type={field.type === 'number' ? 'number' : 'text'} bind:value={values[field.name]} />
+        {/if}
+      </label>
+    {/each}
+    <div class="actions">
+      <button class="btn" onclick={() => app.decide(request.id, 'deny')}>Decline</button>
+      <button class="btn primary" disabled={!formComplete} onclick={submitForm}>{form.fields.length ? 'Send' : 'Done'}</button>
+    </div>
+  {:else if questions}
     {#each questions as q, i (q.question)}
       <fieldset>
         <legend>{q.question}</legend>
@@ -86,13 +126,13 @@
       <button class="btn primary" disabled={!complete} onclick={submitAnswers}>Send answers</button>
     </div>
   {:else}
-    <h3>{isPlan ? 'Claude has a plan. Go ahead with it?' : (request.title ?? `Allow Claude to use ${request.toolName}?`)}</h3>
+    <h3>{isPlan ? `${agent} has a plan. Go ahead with it?` : (request.title ?? `Allow ${agent} to use ${request.toolName}?`)}</h3>
     {#if description}<p class="desc">{description}</p>{/if}
     <ToolInput name={request.toolName} input={request.input} />
     <div class="actions">
       <button class="btn" onclick={() => app.decide(request.id, 'deny')}>{isPlan ? 'Keep planning' : 'Deny'}</button>
       {#if request.canAlways && !isPlan}
-        <button class="btn" onclick={() => app.decide(request.id, 'always')}>Always allow</button>
+        <button class="btn" onclick={() => app.decide(request.id, 'always')}>{request.alwaysLabel ?? 'Always allow'}</button>
       {/if}
       <button class="btn primary" onclick={() => app.decide(request.id, 'allow')}>
         {isPlan ? 'Approve plan' : 'Allow once'}
@@ -159,6 +199,29 @@
   .option.on {
     border-color: var(--accent);
     background: var(--accent-soft);
+  }
+
+  .field {
+    display: grid;
+    gap: 4px;
+  }
+
+  .field span {
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .field small {
+    color: var(--muted);
+  }
+
+  select {
+    min-height: 38px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    font-size: 16px;
   }
 
   input {

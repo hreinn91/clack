@@ -16,7 +16,8 @@ services:
       - "${CLACK_PORT:-4317}:4317"
 
     # Everything in .env reaches the container: CLACK_TOKEN, CLACK_USER_NAME, CLACK_TERMINAL,
-    # CLACK_IDLE_MINUTES, a Claude sign-in such as CLAUDE_CODE_OAUTH_TOKEN, and
+    # CLACK_IDLE_MINUTES, CLACK_CODEX, a Claude sign-in such as CLAUDE_CODE_OAUTH_TOKEN,
+    # a Codex API key (CODEX_API_KEY) if you use one instead of signing in, and
     # CLACK_UID / CLACK_GID: the user the app runs as. On a Linux host, set those two
     # to your own ids (`id -u`, `id -g`) so the files in the data directory are yours.
     # Docker Desktop and colima on a Mac do not need them.
@@ -34,7 +35,7 @@ services:
     volumes:
       # The data directory, on the host. CLACK_DATA_PATH in .env points it somewhere else.
       - ${CLACK_DATA_PATH:-./data}:/data
-      # Claude Code's sign-in and conversations, and clack's access token. Kept by
+      # Claude Code's and Codex's sign-ins and conversations, and clack's access token. Kept by
       # Docker; `docker compose down` leaves it, `docker compose down -v` deletes it.
       - clack-home:/home/node
 

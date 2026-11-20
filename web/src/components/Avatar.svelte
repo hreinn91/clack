@@ -1,22 +1,25 @@
 <script lang="ts">
+  import type { Provider } from '../../../shared/protocol';
   import { colorFor, distinctColors, initials } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import ProviderMark from './ProviderMark.svelte';
 
-  // 'person' and 'folder' show letters, 'model' a spark, 'system' a plain grey tile.
+  // 'person' and 'folder' show letters, 'model' its agent's sign (Claude's
+  // spark, Codex's prompt), 'system' a plain grey tile.
   let {
     kind,
     label,
     size = 36,
-  }: { kind: 'person' | 'folder' | 'model' | 'system'; label: string; size?: number } = $props();
+    provider = 'claude',
+  }: { kind: 'person' | 'folder' | 'model' | 'system'; label: string; size?: number; provider?: Provider } = $props();
 
-  const MODEL_COLORS: Record<string, string> = {
-    fable: '#3667c8',
-    opus: '#c2571a',
-    sonnet: '#7c3085',
-    haiku: '#2b8a6e',
+  /** Each agent's models in colours of their own, by the word that names the model's family. */
+  const MODEL_COLORS: Record<Provider, Record<string, string>> = {
+    claude: { fable: '#3667c8', opus: '#c2571a', sonnet: '#7c3085', haiku: '#2b8a6e' },
+    codex: { sol: '#1f7a8c', astra: '#4a8f3c', terra: '#8a6418', luna: '#5a4fb8' },
   };
 
-  const OTHER_MODEL = '#d1345b';
+  const OTHER_MODEL: Record<Provider, string> = { claude: '#d1345b', codex: '#1f7a8c' };
 
   /** The person's own picture, when they have one. Initials show again if it cannot be loaded. */
   let broken = $state<number | undefined>();
@@ -25,12 +28,13 @@
   const color = $derived.by(() => {
     if (kind === 'system') return '';
     if (kind !== 'model') return colorFor(label);
-    const family = Object.keys(MODEL_COLORS).find((name) => label.toLowerCase().includes(name));
-    const own = family ? MODEL_COLORS[family]! : OTHER_MODEL;
-    // Claude never wears the person's colour, or one close to it, so replies stand apart from prompts at a glance.
+    const colors = MODEL_COLORS[provider];
+    const family = Object.keys(colors).find((name) => label.toLowerCase().includes(name));
+    const own = family ? colors[family]! : OTHER_MODEL[provider];
+    // The agent never wears the person's colour, or one close to it, so replies stand apart from prompts at a glance.
     const person = colorFor(app.userName);
     if (distinctColors(own, person)) return own;
-    return [...Object.values(MODEL_COLORS), OTHER_MODEL].find((other) => distinctColors(other, person)) ?? own;
+    return [...Object.values(colors), OTHER_MODEL[provider], ...Object.values(MODEL_COLORS[provider === 'claude' ? 'codex' : 'claude'])].find((other) => distinctColors(other, person)) ?? own;
   });
 </script>
 
@@ -47,9 +51,7 @@
   {#if picture}
     <img src={picture} alt="" onerror={() => (broken = app.avatar)} />
   {:else if kind === 'model'}
-    <svg viewBox="0 0 24 24" width="62%" height="62%" fill="currentColor">
-      <path d="M12 2.5c.5 5.4 3.6 8.5 9 9.5-5.4 1-8.5 4.1-9 9.5-.5-5.4-3.6-8.5-9-9.5 5.4-1 8.5-4.1 9-9.5z" />
-    </svg>
+    <ProviderMark {provider} size={Math.round(size * 0.6)} />
   {:else if kind === 'system'}
     <svg viewBox="0 0 24 24" width="58%" height="58%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
       <circle cx="12" cy="12" r="9" />

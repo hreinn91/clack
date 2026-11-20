@@ -1,16 +1,39 @@
 // Wire protocol shared by the server and the web UI.
 // Types only: nothing in this file may have a runtime footprint.
 
+/** The agent a chat runs on: Claude Code (Anthropic) or Codex (OpenAI). */
+export type Provider = 'claude' | 'codex';
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto';
 export type SessionState = 'idle' | 'running';
-export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * How hard the model thinks. Claude uses low to max; Codex models add others
+ * (minimal, ultra…). Which ones a model accepts is in its ModelOption.
+ */
+export type EffortLevel = string;
 
-/** A model the signed-in Claude account can use, with the effort levels it accepts. */
+/** A model a signed-in account can use, with the effort levels it accepts. */
 export type ModelOption = {
+  provider: Provider;
   value: string;
   label: string;
   description: string;
   efforts: EffortLevel[];
+  /** The effort the model uses when none is chosen, where the provider says. */
+  defaultEffort?: EffortLevel;
+  /** The provider's own default model. */
+  isDefault?: boolean;
+};
+
+/** One provider's models, and whether it can be used at all on this server. */
+export type ProviderModels = {
+  provider: Provider;
+  /** Installed and signed in. */
+  available: boolean;
+  /** Why it cannot be used, when it cannot. */
+  reason?: string;
+  /** The plan or kind of account it is signed in with ("max", "plus", "API key"). */
+  plan?: string;
+  models: ModelOption[];
 };
 
 /**
@@ -36,6 +59,8 @@ export type Item = Stamp &
         result?: { text: string; isError: boolean };
       }
     | { kind: 'notice'; id: string; level: 'info' | 'error'; text: string }
+    /** The chat moved to the other agent here; it was handed the conversation so far. */
+    | { kind: 'divider'; id: string; from: Provider; to: Provider; fromModel?: string; toModel?: string }
   );
 
 /** Content that is still streaming in. For kind 'tool', `text` is the tool name. */
@@ -50,22 +75,38 @@ export type PermissionRequest = {
   reason?: string;
   /** Whether "always allow" can be offered for this request. */
   canAlways: boolean;
+  /** What the "always" button says; the providers mean different things by it. */
+  alwaysLabel?: string;
+  /** An MCP server asking for details: a small form instead of yes and no. */
+  form?: { message: string; fields: FormField[]; url?: string };
+};
+
+/** One field of a form an MCP server asks to be filled in. */
+export type FormField = {
+  name: string;
+  label: string;
+  description?: string;
+  type: 'string' | 'number' | 'boolean' | 'choice';
+  required: boolean;
+  options?: string[];
 };
 
 export type PermissionDecision = 'allow' | 'always' | 'deny';
 
 export type SessionMeta = {
   sessionId: string;
+  /** The agent the chat runs on now. A chat that switched has run on the other one before. */
+  provider: Provider;
   /** Absolute working directory on the server. */
   cwd: string;
   /** The same directory as shown to people: its name under data/sessions. */
   folder: string;
   state: SessionState;
   mode: PermissionMode;
-  /** Chosen model and effort; null leaves the choice to Claude Code. */
+  /** Chosen model and effort; null leaves the choice to the agent. */
   model: string | null;
   effort: EffortLevel | null;
-  /** The model Claude Code reports it is actually running, once it has started. */
+  /** The model the agent reports it is actually running, once it has started. */
   activeModel?: string;
   title?: string;
   /** How full the model's context window is, as of the last finished turn. Unknown until a turn has run. */
@@ -145,6 +186,7 @@ export type ContextUsage = { tokens: number; max: number; percent: number };
  * Paths are shortened: "./" for the chat's folder, "~/" for the home folder.
  */
 export type ContextDetail = ContextUsage & {
+  provider: Provider;
   model: string;
   measuredAt: number;
   /** Where Claude Code compacts the conversation on its own, in tokens; missing when it does not. */
@@ -165,14 +207,17 @@ export type ContextDetail = ContextUsage & {
 /** One of the plan's limits: how much of it is used (0 to 100) and when it starts over. */
 export type UsageWindow = { id: string; label: string; used: number; resetsAt?: number };
 
-/** How much of the Claude plan's limits is used. `available` is false where plan limits do not apply, such as with an API key. */
+/** How much of a provider's plan limits is used. `available` is false where plan limits do not apply, such as with an API key. */
 export type PlanUsage = {
+  provider: Provider;
   available: boolean;
-  /** The kind of subscription: "pro", "max", "team" and so on. */
+  /** The kind of subscription: "pro", "max", "plus", "team" and so on. */
   plan?: string;
   windows: UsageWindow[];
   /** Pay-as-you-go usage beyond the plan, when it is switched on. */
   extra?: { used: number; limit: number | null; currency: string | null; percent: number | null };
+  /** Prepaid credits that take over when the plan's limits run out (Codex). */
+  credits?: { balance: string | null; unlimited: boolean };
   fetchedAt: number;
   /** Why there are no figures, when asking for them failed. */
   error?: string;
@@ -189,6 +234,7 @@ export type LogEntry = {
   folder: string;
   kind: LogKind;
   text: string;
+  provider?: Provider;
   /** For responses: the model that wrote it. */
   model?: string;
   error?: boolean;
@@ -243,12 +289,17 @@ export type ClientMessage =
       answers?: Record<string, string>;
     }
   | { t: 'mode'; sessionId: string; mode: PermissionMode }
-  | { t: 'config'; sessionId: string; model: string | null; effort: EffortLevel | null }
+  /** A model of the other provider switches the chat over to it, handing the conversation so far along. */
+  | { t: 'config'; sessionId: string; provider: Provider; model: string | null; effort: EffortLevel | null }
   /** Start or stop receiving new log entries as they are written. */
   | { t: 'logs'; on: boolean };
 
 export type SessionSummary = {
   sessionId: string;
+  /** The agent it runs on now. */
+  provider: Provider;
+  /** The model it last ran, where known. */
+  model?: string;
   title: string;
   folder: string;
   gitBranch?: string;
@@ -266,6 +317,7 @@ export type SessionSummary = {
  * the top of data/sessions, where only your own (user-wide) setup applies.
  */
 export type Capabilities = {
+  provider: Provider;
   folder: string | null;
   measuredAt: number;
   mcpServers: {

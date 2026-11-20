@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { folderPlace, within as inside } from '../lib/format';
+  import { folderPlace, modelName, providerMaker, providerName, within as inside } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import FolderFinder from './FolderFinder.svelte';
   import Modal from './Modal.svelte';
@@ -106,6 +106,26 @@
     }
   }
 
+  // ---- moving the open chat to the other agent ----
+
+  const switching = $derived(app.switching);
+  const target = $derived(switching ? app.usages[switching.provider] : undefined);
+  /** The target agent's most-used limit, so it is clear what the switch will cost. */
+  const tightest = $derived(
+    target?.available ? target.windows.reduce<(typeof target.windows)[number] | undefined>((worst, w) => (!worst || w.used > worst.used ? w : worst), undefined) : undefined,
+  );
+
+  function closeSwitch() {
+    app.switching = null;
+  }
+
+  function confirmSwitch(event: SubmitEvent) {
+    event.preventDefault();
+    if (!switching) return;
+    app.configure(switching.model, switching.effort, switching.provider);
+    app.switching = null;
+  }
+
   function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!dialog) return;
@@ -127,7 +147,7 @@
         <h2>Change folder</h2>
         <p>
           <strong>{session.title}</strong> works in <code>{session.folder}</code>. Find another folder, or type a new name
-          to create one. Claude works there from the next message; no files are moved.
+          to create one. {providerName(app.provider)} works there from the next message; no files are moved.
         </p>
         <FolderFinder
           current={session.folder}
@@ -208,6 +228,30 @@
       <div class="actions">
         <button type="button" class="btn" data-autofocus="" onclick={closeRoot} disabled={busy}>Cancel</button>
         <button class="btn primary" disabled={busy}>Remove</button>
+      </div>
+    </form>
+  </Modal>
+{/if}
+
+{#if switching}
+  {@const to = providerName(switching.provider)}
+  {@const from = providerName(app.provider)}
+  <Modal title={`Switch to ${to}`} onclose={closeSwitch}>
+    <form onsubmit={confirmSwitch}>
+      <h2>Carry on with {to}?</h2>
+      <p>
+        This chat moves from {from} to <strong>{to}{switching.model ? ` · ${modelName(switching.model)}` : ''}</strong>
+        ({providerMaker(switching.provider)}). {to} starts fresh: with your next message it is handed the conversation so far as text,
+        with older parts shortened. What {from} changed in the folder stays on disk; what it read or ran is not in {to}'s memory.
+      </p>
+      <p>
+        Usage from then on counts against your {switching.provider === 'codex' ? 'ChatGPT' : 'Claude'} plan{tightest
+          ? ` (${tightest.label.toLowerCase()}: ${tightest.used}% used)`
+          : ''}. You can switch back later; the chat keeps both parts.
+      </p>
+      <div class="actions">
+        <button type="button" class="btn" data-autofocus="" onclick={closeSwitch}>Cancel</button>
+        <button class="btn primary">Switch to {to}</button>
       </div>
     </form>
   </Modal>

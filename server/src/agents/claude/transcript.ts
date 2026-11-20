@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SessionMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { EffortLevel, Item, Stamp } from '../../shared/protocol.ts';
+import type { EffortLevel, Item, Stamp } from '../../../../shared/protocol.ts';
 
 /** A content block as it appears in Anthropic API messages. */
 export type Block = { type: string; [key: string]: unknown };

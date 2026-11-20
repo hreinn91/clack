@@ -1,7 +1,19 @@
 <script lang="ts">
   // A button that opens a menu of choices. Unlike a native select, the menu
   // shows every choice at once, with room for a line explaining each.
-  type Option = { value: string; label: string; description?: string };
+  import type { Snippet } from 'svelte';
+
+  type Option = {
+    value: string;
+    label: string;
+    description?: string;
+    /** Options with the same group are listed together under its name. */
+    group?: string;
+    /** Said beside the group's name (the plan it is signed in with, say). */
+    groupNote?: string;
+    /** Shown but cannot be picked. */
+    disabled?: boolean;
+  };
 
   let {
     label,
@@ -11,6 +23,8 @@
     disabled = false,
     placement = 'up',
     align = 'left',
+    lead,
+    groupLead,
   }: {
     /** What is being chosen, for screen readers and the tooltip. */
     label: string;
@@ -21,6 +35,10 @@
     /** Whether the menu opens above or below the button. */
     placement?: 'up' | 'down';
     align?: 'left' | 'right';
+    /** Drawn before the chosen option's name on the button. */
+    lead?: Snippet;
+    /** Drawn before each group's name. */
+    groupLead?: Snippet<[string]>;
   } = $props();
 
   let open = $state(false);
@@ -53,7 +71,7 @@
       root?.querySelector<HTMLElement>('.trigger')?.focus();
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      const items = [...(menu?.querySelectorAll<HTMLElement>('button') ?? [])];
+      const items = [...(menu?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])];
       const at = items.indexOf(document.activeElement as HTMLElement);
       const next = (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
       items[next]?.focus();
@@ -72,6 +90,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span class="picker" class:down={placement === 'down'} class:right={align === 'right'} bind:this={root} {onkeydown}>
   <button type="button" class="trigger" class:open aria-haspopup="listbox" aria-expanded={open} aria-label={`${label}: ${current?.label ?? value}`} title={label} {disabled} onclick={toggle}>
+    {@render lead?.()}
     <span>{current?.label ?? value}</span>
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M2 3.5 5 6.5l3-3" />
@@ -79,8 +98,22 @@
   </button>
   {#if open}
     <div class="menu" role="listbox" aria-label={label} bind:this={menu}>
-      {#each options as option (option.value)}
-        <button type="button" role="option" aria-selected={option.value === value} onclick={() => pick(option.value)}>
+      {#each options as option, index (option.value)}
+        {#if option.group && option.group !== options[index - 1]?.group}
+          <div class="group" role="presentation">
+            {@render groupLead?.(option.group)}
+            <span>{option.group}</span>
+            {#if option.groupNote}<em>{option.groupNote}</em>{/if}
+          </div>
+        {/if}
+        <button
+          type="button"
+          role="option"
+          aria-selected={option.value === value}
+          aria-disabled={option.disabled}
+          disabled={option.disabled}
+          onclick={() => pick(option.value)}
+        >
           <svg class="check" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             {#if option.value === value}<path d="M3 7.5 6 10.5l5-6.5" />{/if}
           </svg>
@@ -179,7 +212,37 @@
     text-align: left;
   }
 
-  .menu button:hover,
+  .group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px 4px;
+    color: var(--muted);
+    font: 700 11.5px var(--font);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .group:not(:first-child) {
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+  }
+
+  .group em {
+    margin-left: auto;
+    font-style: normal;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .menu button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .menu button:hover:not(:disabled),
   .menu button:focus-visible {
     outline: none;
     background: var(--accent);

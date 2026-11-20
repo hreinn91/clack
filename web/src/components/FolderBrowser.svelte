@@ -161,7 +161,7 @@
         <p class="note">{blocked}</p>
       {:else}
         <p class="note">
-          Claude can read and change the files in this folder and the folders inside it, and nothing outside it. It gets its
+          The agent can change the files in this folder and the folders inside it, and nothing outside it. It gets its
           own tree in the sidebar.
         </p>
       {/if}

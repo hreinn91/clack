@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { BackgroundTask } from '../../../shared/protocol';
-  import { tokens } from '../lib/format';
+  import { tokens, providerName } from '../lib/format';
   import { placeBelow } from '../lib/popover';
   import { app } from '../lib/state.svelte';
 
@@ -167,7 +167,7 @@
   >
     <header>
       <h2>Background</h2>
-      <p>Shell commands and agents Claude left running in this chat while it carries on.</p>
+      <p>Shell commands and agents {providerName(app.provider)} left running in this chat while it carries on.</p>
     </header>
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -193,7 +193,7 @@
       </section>
     {:else}
       <p class="empty">
-        Nothing is running in the background. When Claude starts a long command or hands work to an agent in the
+        Nothing is running in the background. When {providerName(app.provider)} starts a long command or hands work to an agent in the
         background, it shows up here while it runs.
       </p>
     {/if}

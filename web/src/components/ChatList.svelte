@@ -2,9 +2,10 @@
   import { tick } from 'svelte';
   import type { SessionSummary } from '../../../shared/protocol';
   import type { FolderInfo, FolderRoot } from '../../../shared/protocol';
-  import { ago, folderPath, folderPlace, isOutside, within } from '../lib/format';
+  import { ago, folderPath, folderPlace, isOutside, modelName, providerName, within } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import ActionMenu from './ActionMenu.svelte';
+  import ProviderMark from './ProviderMark.svelte';
 
   // The sidebar's chats, as a tree of the folders under data/sessions. Each
   // folder lists the chats that work in it, then the folders inside it.
@@ -267,9 +268,10 @@
     <a
       href={`#/s/${chat.sessionId}`}
       aria-current={chat.sessionId === app.sessionId ? 'page' : undefined}
-      title={`${chat.title}\nFolder: ${chat.folder}${chat.missing ? ' (deleted)' : ''} · ${ago(chat.lastModified)}`}
+      title={`${chat.title}\nRuns on ${providerName(chat.provider)}${chat.model ? ` · ${modelName(chat.model)}` : ''}\nFolder: ${chat.folder}${chat.missing ? ' (deleted)' : ''} · ${ago(chat.lastModified)}`}
     >
       <span class="dot" class:busy={chat.running} aria-label={chat.running ? 'Working' : undefined}></span>
+      <span class="agent {chat.provider}" aria-label={`On ${providerName(chat.provider)}`}><ProviderMark provider={chat.provider} size={11} /></span>
       <span class="label">{chat.title}</span>
       {#if depth === null}
         <span class="where" class:gone={chat.missing}>{chat.folder}</span>
@@ -533,6 +535,19 @@
 {/if}
 
 <style>
+  /* The agent a chat runs on, in its colour, small enough not to crowd the title. */
+  .agent {
+    display: grid;
+    place-items: center;
+    flex: none;
+    color: var(--provider-claude);
+    opacity: 0.85;
+  }
+
+  .agent.codex {
+    color: var(--provider-codex);
+  }
+
   section + section {
     margin-top: 14px;
   }

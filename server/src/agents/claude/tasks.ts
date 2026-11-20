@@ -1,5 +1,5 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { BackgroundTask } from '../../shared/protocol.ts';
+import type { BackgroundTask } from '../../../../shared/protocol.ts';
 
 // The work a chat's Claude Code process is doing in the background: shell
 // commands it started with run_in_background, agents it handed work to, and

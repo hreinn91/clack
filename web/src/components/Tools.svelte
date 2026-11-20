@@ -1,17 +1,22 @@
 <script lang="ts">
-  import type { Capabilities } from '../../../shared/protocol';
-  import { ago } from '../lib/format';
+  import type { Capabilities, Provider } from '../../../shared/protocol';
+  import { ago, providerMaker, providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import Picker from './Picker.svelte';
+  import ProviderMark from './ProviderMark.svelte';
 
   let { onmenu }: { onmenu: () => void } = $props();
 
-  // What Claude Code can use in a chat: MCP servers and their tools, skills,
-  // agents, custom commands and its built-in tools. Set-up can differ per
-  // folder (a folder's own .mcp.json or skills), so a folder can be picked.
+  // What an agent can use in a chat: MCP servers and their tools, skills,
+  // agents, custom commands and its built-in tools. Each agent has its own
+  // set-up, so the page shows one at a time; set-up can also differ per folder
+  // (a folder's own .mcp.json or skills), so a folder can be picked.
 
   const EVERYWHERE = '';
 
+  /** The agent shown: the open chat's to begin with. */
+  // svelte-ignore state_referenced_locally
+  let provider = $state<Provider>(app.provider);
   let folder = $state(EVERYWHERE);
   let filter = $state('');
   let loading = $state(false);
@@ -20,11 +25,13 @@
 
   async function load(fresh = false) {
     const asked = folder;
+    const whose = provider;
     loading = true;
     error = '';
+    if (found?.provider !== whose) found = null;
     try {
-      const answer = await app.loadCapabilities(asked, fresh);
-      if (asked === folder) found = answer;
+      const answer = await app.loadCapabilities(asked, fresh, whose);
+      if (asked === folder && whose === provider) found = answer;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -32,15 +39,21 @@
     }
   }
 
-  // Asked again whenever another folder is picked.
+  // Asked again whenever another folder or agent is picked.
   $effect(() => {
     folder;
+    provider;
     void load();
   });
 
   $effect(() => {
     void app.loadFolders();
+    void app.loadModels();
   });
+
+  /** The agents to choose between: the ones this server offers. */
+  const choices = $derived(app.providers.map((p) => p.provider));
+  const agent = $derived(providerName(provider));
 
   const folderOptions = $derived([
     { value: EVERYWHERE, label: 'Everywhere', description: 'Your own setup, in every chat' },
@@ -79,6 +92,11 @@
     TaskUpdate: 'Updates a step on its task list',
     TodoWrite: 'Keeps a to-do list for the task at hand',
     WebFetch: 'Reads a web page',
+    apply_patch: 'Changes files with a patch',
+    shell: 'Runs shell commands',
+    update_plan: 'Keeps a step-by-step plan for the task',
+    view_image: 'Looks at a picture',
+    web_search: 'Searches the web',
     WebSearch: 'Searches the web',
     Write: 'Writes whole files',
   };
@@ -96,6 +114,10 @@
         policySettings: 'Managed',
         syncedSkills: 'Your Claude account',
         plugin: 'Plugin',
+        user: 'Yours',
+        repo: 'This folder',
+        system: 'Built in',
+        admin: 'Managed',
       }[source] ?? source
     );
   }
@@ -114,6 +136,7 @@
         enterprise: 'Managed',
         dynamic: 'Added while running',
         sdk: 'clack',
+        config: 'Your Codex config',
       }[scope] ?? scope
     );
   }
@@ -159,10 +182,26 @@
 
 <div class="scroll">
   <div class="panel">
+    {#if choices.length > 1}
+      <div class="agents" role="radiogroup" aria-label="Agent">
+        {#each choices as choice (choice)}
+          <button role="radio" aria-checked={provider === choice} class:on={provider === choice} class={choice} onclick={() => (provider = choice)}>
+            <ProviderMark provider={choice} size={15} />
+            <span><strong>{providerName(choice)}</strong> <small>{providerMaker(choice)}</small></span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+
     <p class="intro">
-      What Claude can use in your chats: MCP servers and their tools, skills, agents, your own slash commands, and Claude
-      Code's built-in tools. A folder can add its own (a <code>.mcp.json</code>, or skills in <code>.claude/skills</code>);
-      pick it to see those too.
+      {#if provider === 'codex'}
+        What Codex can use in your chats: MCP servers and their tools, skills, and Codex's built-in tools. They are set up
+        in <code>~/.codex/config.toml</code> on the server; a folder can add skills of its own.
+      {:else}
+        What Claude can use in your chats: MCP servers and their tools, skills, agents, your own slash commands, and Claude
+        Code's built-in tools. A folder can add its own (a <code>.mcp.json</code>, or skills in <code>.claude/skills</code>);
+        pick it to see those too.
+      {/if}
     </p>
 
     <div class="bar">
@@ -182,11 +221,11 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     {#if loading && !found}
-      <p class="wait"><span class="spinner"></span> Asking Claude Code… MCP servers can take a few seconds to connect.</p>
+      <p class="wait"><span class="spinner"></span> Asking {provider === 'codex' ? 'Codex' : 'Claude Code'}… MCP servers can take a few seconds to connect.</p>
     {:else if found}
       <p class="checked">
         {#if loading}Asking again…{:else}Checked {ago(found.measuredAt) === 'now' ? 'just now' : `${ago(found.measuredAt)} ago`}.{/if}
-        Nothing is sent to Claude to find this out, so it costs no tokens.
+        Nothing is sent to {agent} to find this out, so it costs no tokens.
       </p>
 
       {#if nothing}
@@ -213,8 +252,12 @@
                     {#if server.error}<p class="note bad">{server.error}</p>{/if}
                     {#if server.status === 'needs-auth'}
                       <p class="note">
-                        Not signed in, so its tools are not available. Sign in where it was set up: claude.ai connectors in
-                        claude.ai's settings, others with <code>/mcp</code> in Claude Code on the server.
+                        {#if provider === 'codex'}
+                          Not signed in, so its tools are not available. Sign in with <code>codex mcp login {server.name}</code> on the server.
+                        {:else}
+                          Not signed in, so its tools are not available. Sign in where it was set up: claude.ai connectors in
+                          claude.ai's settings, others with <code>/mcp</code> in Claude Code on the server.
+                        {/if}
                       </p>
                     {/if}
                     {#if server.tools.length}
@@ -234,7 +277,11 @@
               {/each}
             </ul>
           {:else}
-            <p class="empty">No MCP servers are set up. Add them with <code>claude mcp add</code> on the server, or as connectors on claude.ai.</p>
+            {#if provider === 'codex'}
+              <p class="empty">No MCP servers are set up. Add them with <code>codex mcp add</code> on the server.</p>
+            {:else}
+              <p class="empty">No MCP servers are set up. Add them with <code>claude mcp add</code> on the server, or as connectors on claude.ai.</p>
+            {/if}
           {/if}
         </section>
       {/if}
@@ -243,10 +290,10 @@
         <section>
           <h2>Skills <span class="count">{skills.length}</span></h2>
           <p class="lead">
-            Instructions Claude loads when a task calls for them.
+            Instructions {agent} loads when a task calls for them.
             {#if skills.some((skill) => skill.invocable)}
-              Most can also be run by name, like <code>/{skills.find((skill) => skill.invocable)!.name}</code>; the ones marked
-              <span class="tag inline">Claude only</span> cannot.
+              Most can also be run by name, like <code>/{skills.find((skill) => skill.invocable)!.name}</code>{#if skills.some((skill) => !skill.invocable)}; the ones marked
+                <span class="tag inline">Claude only</span> cannot{/if}.
             {/if}
           </p>
           <ul class="rows">
@@ -273,7 +320,7 @@
       {#if agents.length}
         <section>
           <h2>Agents <span class="count">{agents.length}</span></h2>
-          <p class="lead">Helpers Claude can hand part of a task to.</p>
+          <p class="lead">Helpers {agent} can hand part of a task to.</p>
           <ul class="rows">
             {#each agents as agent (agent.name)}
               <li>
@@ -309,8 +356,12 @@
           <h2>Built-in tools <span class="count">{tools.length}</span></h2>
           {#if found.tools}
             <p class="lead">
-              Claude Code's own tools, as the last chat to start reported them ({ago(found.tools.seenAt) === 'now' ? 'just now' : `${ago(found.tools.seenAt)} ago`}).
-              Permission mode decides which of them ask first.
+              {#if provider === 'codex'}
+                Codex's own tools. Permission mode and Codex's sandbox decide which of them ask first.
+              {:else}
+                Claude Code's own tools, as the last chat to start reported them ({ago(found.tools.seenAt) === 'now' ? 'just now' : `${ago(found.tools.seenAt)} ago`}).
+                Permission mode decides which of them ask first.
+              {/if}
             </p>
             <ul class="grid">
               {#each tools as name (name)}
@@ -327,6 +378,40 @@
 </div>
 
 <style>
+  /* Which agent's tools are shown: one tile per agent, in its colour. */
+  .agents {
+    display: flex;
+    gap: 8px;
+  }
+
+  .agents button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .agents button :global(svg) {
+    color: var(--provider-claude);
+  }
+
+  .agents button.codex :global(svg) {
+    color: var(--provider-codex);
+  }
+
+  .agents button.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .agents small {
+    color: var(--muted);
+  }
+
   .scroll {
     flex: 1;
     min-height: 0;

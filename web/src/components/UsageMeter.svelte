@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { tokens, until } from '../lib/format';
+  import { providerName, tokens, until } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import ProviderMark from './ProviderMark.svelte';
   import UsageRing from './UsageRing.svelte';
 
   // The ring beside the send button: how close the plan's limits are, at a
@@ -43,7 +44,11 @@
       <UsageRing {percent} />
     </button>
     {#if open}
-      <div class="card" role="dialog" aria-label="Usage">
+      <div class="card" role="dialog" aria-label={`${providerName(app.provider)} usage`}>
+        <p class="who">
+          <ProviderMark provider={app.provider} size={13} />
+          {providerName(app.provider)}{app.usage?.plan ? ` · ${app.usage.plan[0]!.toUpperCase()}${app.usage.plan.slice(1)}` : ''}
+        </p>
         {#each windows as window (window.id)}
           <div class="line">
             <UsageRing percent={window.used} size={16} />
@@ -67,6 +72,18 @@
 {/if}
 
 <style>
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
   .meter {
     position: relative;
     display: inline-flex;

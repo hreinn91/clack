@@ -15,7 +15,7 @@ import type {
   FolderRoot,
   LogPage,
   Me,
-  ModelOption,
+  ProviderModels,
   PlanUsage,
   TerminalInfo,
   Upload,
@@ -25,13 +25,12 @@ import { config, tokenFile } from './config.ts';
 import { FileError, listDir, openChatImage, openImage, previewFile } from './files.ts';
 import { MAX_UPLOAD_BYTES, saveUpload } from './uploads.ts';
 import { avatarVersion, MAX_AVATAR_BYTES, openAvatar, removeAvatar, saveAvatar } from './avatar.ts';
-import { capabilities } from './capabilities.ts';
+import { backend, backends, isProvider, startingProvider } from './agents/registry.ts';
 import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
-import { listModels } from './models.ts';
 import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
-import { planUsage } from './usage.ts';
+import { defaultPrefs } from './prefs.ts';
 import { registerWs } from './ws.ts';
 
 const app = Fastify({ logger: { level: 'warn' } });
@@ -83,7 +82,8 @@ app.get('/api/sessions', async () => listSummaries());
 app.post('/api/sessions', async (req, reply) => {
   const name = (req.body as { folder?: unknown } | null)?.folder;
   try {
-    return { sessionId: createSession(await ensureFolder(name)).sessionId };
+    const cwd = await ensureFolder(name);
+    return { sessionId: createSession(cwd, await startingProvider(defaultPrefs().provider ?? 'claude')).sessionId };
   } catch (err) {
     return reply.code(400).send({ error: err instanceof Error ? err.message : 'Could not create that folder.' });
   }
@@ -187,13 +187,14 @@ app.delete('/api/folders', async (req, reply) => {
   }
 });
 
-// What Claude Code can use in a folder (or, with no folder, everywhere): MCP servers, skills, agents, tools.
+// What an agent can use in a folder (or, with no folder, everywhere): MCP servers, skills, agents, tools.
 app.get('/api/capabilities', async (req, reply): Promise<Capabilities | undefined> => {
-  const params = req.query as { folder?: string; fresh?: string };
+  const params = req.query as { folder?: string; fresh?: string; provider?: string };
   try {
-    return await capabilities(params.folder ?? '', params.fresh === '1');
+    const provider = isProvider(params.provider) ? params.provider : 'claude';
+    return await backend(provider).capabilities(params.folder ?? '', params.fresh === '1');
   } catch (err) {
-    return reply.code(400).send({ error: err instanceof Error ? err.message : 'Claude Code could not be asked.' });
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'The agent could not be asked.' });
   }
 });
 
@@ -214,18 +215,36 @@ app.get('/api/logs', async (req): Promise<LogPage> => {
   return { dir: logDir, entries: recentLogs(limit) };
 });
 
-// How much of the Claude plan's limits is used. `fresh=1` asks Claude Code again rather than answering from memory.
-app.get('/api/usage', async (req): Promise<PlanUsage> => planUsage((req.query as { fresh?: string }).fresh === '1'));
-
-app.get('/api/models', async (_req, reply): Promise<ModelOption[] | undefined> => {
-  try {
-    return await listModels();
-  } catch (err) {
-    app.log.warn(err, 'could not list models');
-    reply.code(502).send({ error: 'Could not get the model list from Claude Code.' });
-    return;
-  }
+// How much of each provider's plan limits is used. `fresh=1` asks again rather than answering from memory;
+// `provider` asks only that one.
+app.get('/api/usage', async (req): Promise<PlanUsage[]> => {
+  const { fresh, provider } = req.query as { fresh?: string; provider?: string };
+  const asked = backends().filter((b) => !isProvider(provider) || b.provider === provider);
+  return Promise.all(
+    asked.map((b) =>
+      b.usage(fresh === '1').catch(
+        (err): PlanUsage => ({ provider: b.provider, available: false, windows: [], fetchedAt: Date.now(), error: err instanceof Error ? err.message : String(err) }),
+      ),
+    ),
+  );
 });
+
+// Every provider's models, and whether it can be used. One that cannot is still listed, saying why.
+// `fresh=1` looks at the sign-ins again (after signing in on the server, say).
+app.get('/api/models', async (req): Promise<ProviderModels[]> =>
+  Promise.all(
+    backends().map(async (b): Promise<ProviderModels> => {
+      try {
+        const status = await b.status((req.query as { fresh?: string }).fresh === '1');
+        if (!status.available) return { provider: b.provider, ...status, models: [] };
+        return { provider: b.provider, ...status, models: await b.models() };
+      } catch (err) {
+        app.log.warn(err, `could not list ${b.name} models`);
+        return { provider: b.provider, available: false, reason: err instanceof Error ? err.message : String(err), models: [] };
+      }
+    }),
+  ),
+);
 
 // ---- the data directory: its files and folders, and shells opened in them ----
 

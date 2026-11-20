@@ -1,57 +1,36 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
-import {
-  archiveSession,
-  deleteSession,
-  getSessionInfo,
-  getSessionMessages,
-  listSessions,
-  query,
-  renameSession,
-  unarchiveSession,
-} from '@anthropic-ai/claude-agent-sdk';
-import type {
-  CanUseTool,
-  HookCallback,
-  Options,
-  PermissionResult,
-  PermissionUpdate,
-  Query,
-  SDKMessage,
-  SDKUserMessage,
-} from '@anthropic-ai/claude-agent-sdk';
+import { resolve } from 'node:path';
 import type {
   ContextDetail,
   ContextUsage,
-  GitStatus,
-  GitSummary,
   Draft,
   EffortLevel,
+  GitStatus,
+  GitSummary,
   Item,
   LogKind,
   PermissionDecision,
   PermissionMode,
   PermissionRequest,
+  Provider,
   ServerMessage,
   SessionEvent,
   SessionMeta,
   SessionState,
   SessionSummary,
-  Stamp,
 } from '../../shared/protocol.ts';
-import { rememberTools } from './capabilities.ts';
-import { gitStatus } from './git.ts';
-import { TaskBoard } from './tasks.ts';
+import { buildHandover, stripHandover, withHandover } from './agents/handover.ts';
+import { backend, backends } from './agents/registry.ts';
+import type { AgentRun, RunHost, StoredSession, ToolItem } from './agents/types.ts';
+import { allRecords, chatOf, forgetChat, isEarlierSegment, noteChat, recordOf, saveSegments, segmentsOf } from './chats.ts';
+import type { Segment } from './chats.ts';
 import { config } from './config.ts';
 import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideRoots, isFolder, recreateFolder, removeFolder, removeRoot } from './folders.ts';
+import { gitStatus } from './git.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
-import { projectDirName, relocateTranscript } from './relocate.ts';
 import type { Prefs } from './prefs.ts';
-import { agentReport, assistantItems, blocksOf, itemsFromHistory, modelOf, readEfforts, toolResultText } from './transcript.ts';
-import { refreshUsageWith } from './usage.ts';
 
 export type Listener = (msg: ServerMessage) => void;
 
@@ -59,115 +38,97 @@ export type Listener = (msg: ServerMessage) => void;
 export const bus = new EventEmitter();
 
 const MODES: readonly PermissionMode[] = ['default', 'acceptEdits', 'plan', 'auto'];
-const EFFORTS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
   return MODES.includes(value as PermissionMode);
 }
 
+/** An effort level's name; which ones a model accepts is up to its provider. */
 export function isEffort(value: unknown): value is EffortLevel {
-  return EFFORTS.includes(value as EffortLevel);
+  return typeof value === 'string' && /^[a-z]{1,20}$/.test(value);
 }
-
-/** The prompt stream handed to the SDK: stays open so a session can take many turns. */
-class InputQueue implements AsyncIterable<SDKUserMessage> {
-  private buffer: SDKUserMessage[] = [];
-  private wake: (() => void) | null = null;
-  private closed = false;
-
-  push(message: SDKUserMessage): void {
-    this.buffer.push(message);
-    this.wake?.();
-  }
-
-  close(): void {
-    this.closed = true;
-    this.wake?.();
-  }
-
-  async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage> {
-    while (true) {
-      while (this.buffer.length) yield this.buffer.shift()!;
-      if (this.closed) return;
-      await new Promise<void>((resolve) => (this.wake = resolve));
-      this.wake = null;
-    }
-  }
-}
-
-type ToolItem = Extract<Item, { kind: 'tool' }>;
 
 /** Tool inputs and outputs can be whole files; the log keeps the start of them. */
 function clip(text: string, max = 2000): string {
   return text.length > max ? `${text.slice(0, max)}… (${text.length - max} more characters)` : text;
 }
 
-type Pending = {
-  request: PermissionRequest;
-  suggestions: PermissionUpdate[] | undefined;
-  finish: (result: PermissionResult) => void;
-};
+/** "Claude" or "Codex", for what a chat says about its agent. */
+function agentName(provider: Provider): string {
+  return provider === 'codex' ? 'Codex' : 'Claude';
+}
 
 /**
- * One conversation. It holds the transcript the UI shows and, once the first
- * prompt arrives, a running Claude Code process driven through the Agent SDK.
- * Every change is mirrored to subscribers as an event, so a browser that
- * reconnects only needs a fresh snapshot to be back in sync.
+ * One chat. It holds the transcript the UI shows and the agent it runs on,
+ * which does the work through a provider's AgentRun. Every change is mirrored
+ * to subscribers as an event, so a browser that reconnects only needs a fresh
+ * snapshot to be back in sync.
  */
-export class LiveSession {
+export class LiveSession implements RunHost {
+  /** The chat's own id, which the UI uses. Each provider has its own id for its part (see `segments`). */
   readonly sessionId: string;
-  /** The folder Claude Code works in. Changes only through `move`. */
+  /** The folder the agent works in. Changes only through `move`. */
   cwd: string;
   items: Item[];
   drafts: Draft[] = [];
   state: SessionState = 'idle';
-  /** Chats start in auto mode; Claude Code falls back to 'default' where auto is unavailable. */
+  /** Chats start in auto mode; the agent falls back where auto is unavailable. */
   mode: PermissionMode = 'auto';
-  /** Whether the person picked auto mode themselves, rather than starting in it. */
-  private choseAuto = false;
-  /** Chosen model and effort; null leaves the choice to Claude Code. */
+  provider: Provider;
+  /** Chosen model and effort; null leaves the choice to the agent. */
   model: string | null;
   effort: EffortLevel | null;
-  /** The model the running process reports, which is how "default" gets a name. */
+  /** The model the agent reports, which is how "default" gets a name. */
   activeModel: string | undefined;
   title: string | undefined;
   /** How full the context window was when the last turn ended. */
   context: ContextUsage | undefined;
   lastActivity = Date.now();
 
-  /** Background work of the running process, for the list under the chat's title. */
-  private tasks = new TaskBoard();
+  /** The providers' conversations this chat is made of, oldest first. Empty until the agent has saved anything. */
+  private segments: Segment[];
+  private run: AgentRun;
   /** Uncommitted changes in the folder's repository, counted, as of the last look. */
   private gitSummary: GitSummary | undefined;
   private gitTimer: ReturnType<typeof setTimeout> | undefined;
-  /** False until Claude Code has written this session's transcript, after which it must be resumed rather than created. */
-  private onDisk: boolean;
-  private q: Query | undefined;
-  /** Settles when the running process has gone and its last messages are dealt with. */
-  private pumping: Promise<void> | undefined;
-  private input: InputQueue | undefined;
   private listeners = new Set<Listener>();
-  private pending = new Map<string, Pending>();
+  /** Permission cards waiting for an answer, by id. */
+  private requests = new Map<string, PermissionRequest>();
   private tools = new Map<string, ToolItem>();
-  private streamDrafts = new Map<number, string>();
-  private interrupting = false;
-  /** Replies added while no effort was chosen, by message uuid: what they ran at is looked up when the turn ends. */
-  private unsigned = new Map<string, Item[]>();
+  /** After a switch: the conversation so far, sent to the new agent ahead of the next message. */
+  private handover: string | undefined;
 
-  constructor(init: { sessionId: string; cwd: string; onDisk: boolean; prefs: Prefs; items?: Item[]; title?: string }) {
-    this.sessionId = init.sessionId;
+  constructor(init: { chatId: string; cwd: string; prefs: Prefs; segments: Segment[]; items?: Item[]; title?: string }) {
+    this.sessionId = init.chatId;
     this.cwd = init.cwd;
-    this.onDisk = init.onDisk;
-    this.model = init.prefs.model;
-    this.effort = init.prefs.effort;
+    this.segments = init.segments;
+    this.provider = init.segments.at(-1)?.provider ?? init.prefs.provider ?? 'claude';
+    // A choice made for the other provider (before a switch) does not carry over.
+    const sameProvider = (init.prefs.provider ?? 'claude') === this.provider;
+    this.model = sameProvider ? init.prefs.model : null;
+    this.effort = sameProvider ? init.prefs.effort : null;
     this.title = init.title;
     this.items = init.items ?? [];
     for (const item of this.items) if (item.kind === 'tool') this.tools.set(item.id, item);
+    this.run = this.makeRun();
+  }
+
+  get chatId(): string {
+    return this.sessionId;
+  }
+
+  /** A run for the chat's current provider, resuming its latest conversation when it has one. */
+  private makeRun(): AgentRun {
+    const last = this.segments.at(-1);
+    const current = last && last.provider === this.provider ? last : undefined;
+    // A chat's first Claude conversation takes the chat's own id; one started later, after a switch, a new one.
+    const fresh = !current && this.provider === 'claude' && this.segments.length ? randomUUID() : undefined;
+    return backend(this.provider).run(this, current?.sessionId ?? fresh, current !== undefined);
   }
 
   get hasProcess(): boolean {
-    return this.q !== undefined;
+    return this.run.alive;
   }
 
   get hasListeners(): boolean {
@@ -175,17 +136,23 @@ export class LiveSession {
   }
 
   get hasPending(): boolean {
-    return this.pending.size > 0;
+    return this.requests.size > 0;
   }
 
   /** Background work is still going, which ends if the process is shut down. */
   get hasBackgroundWork(): boolean {
-    return this.tasks.running > 0;
+    return this.run.runningTasks > 0;
+  }
+
+  /** Some provider has saved part of this chat. */
+  get savedOnDisk(): boolean {
+    return this.segments.length > 0;
   }
 
   meta(): SessionMeta {
     return {
       sessionId: this.sessionId,
+      provider: this.provider,
       cwd: this.cwd,
       folder: folderLabel(this.cwd),
       state: this.state,
@@ -197,7 +164,7 @@ export class LiveSession {
       context: this.context,
       folderMissing: !isFolder(this.cwd),
       gitBranch: gitBranch(this.cwd),
-      tasks: this.tasks.list(),
+      tasks: this.run.tasks(),
       ...(this.gitSummary ? { gitChanges: this.gitSummary } : {}),
     };
   }
@@ -209,7 +176,7 @@ export class LiveSession {
       meta: this.meta(),
       items: this.items,
       drafts: this.drafts,
-      pending: [...this.pending.values()].map((p) => p.request),
+      pending: [...this.requests.values()],
     };
   }
 
@@ -226,7 +193,7 @@ export class LiveSession {
   // ---- actions from the UI -------------------------------------------------
 
   prompt(text: string): void {
-    if (this.state === 'running') throw new Error('Claude is still working. Stop it first or wait for it to finish.');
+    if (this.state === 'running') throw new Error(`${agentName(this.provider)} is still working. Stop it first or wait for it to finish.`);
     if (!isFolder(this.cwd)) {
       throw new Error(`This chat's folder, ${folderLabel(this.cwd)}, was deleted. Recreate it or pick another folder to continue.`);
     }
@@ -239,82 +206,85 @@ export class LiveSession {
     }
     this.addItem({ kind: 'user', id, text, ts: Date.now() });
     this.setState('running');
-    this.start();
-    this.input!.push({
-      type: 'user',
-      uuid: id,
-      parent_tool_use_id: null,
-      message: { role: 'user', content: text },
+    this.lastActivity = Date.now();
+    // Just switched: the new agent reads the conversation so far first. The chat shows only what was typed.
+    const said = this.handover ? withHandover(text, this.handover) : text;
+    this.handover = undefined;
+    this.run.prompt(id, said).catch((err: unknown) => {
+      this.notice('error', err instanceof Error ? err.message : String(err));
+      this.setState('idle');
     });
     bus.emit('sessions_changed');
   }
 
   async interrupt(): Promise<void> {
-    if (!this.q || this.state !== 'running') return;
-    this.interrupting = true;
-    await this.q.interrupt();
+    if (this.state !== 'running') return;
+    await this.run.interrupt();
   }
 
   async setMode(mode: PermissionMode): Promise<void> {
     this.mode = mode;
-    this.choseAuto = mode === 'auto';
-    if (this.q) await this.q.setPermissionMode(mode);
+    await this.run.setMode(mode);
     this.emitMeta();
   }
 
-  /** Switches model and effort. Takes effect from the next message. */
+  /** Switches model and effort, and provider before the chat has started. Takes effect from the next message. */
   async configure(prefs: Prefs): Promise<void> {
-    if (this.state === 'running') throw new Error('Wait for Claude to finish before changing the model or effort.');
-    const modelChanged = prefs.model !== this.model;
-    const effortChanged = prefs.effort !== this.effort;
-    if (this.q) {
-      if (modelChanged) await this.q.setModel(prefs.model ?? undefined);
-      // null clears the override, which puts the session back on the model's default effort.
-      if (effortChanged) await this.q.applyFlagSettings({ effortLevel: prefs.effort });
+    const provider = prefs.provider ?? this.provider;
+    if (this.state === 'running') throw new Error(`Wait for ${agentName(this.provider)} to finish before changing the model or effort.`);
+    if (provider !== this.provider) {
+      const started = this.savedOnDisk || this.items.some((item) => item.kind === 'user');
+      const from = this.provider;
+      const fromModel = this.activeModel ?? this.model ?? undefined;
+      await this.run.settle();
+      this.provider = provider;
+      this.model = prefs.model;
+      this.effort = prefs.effort;
+      this.activeModel = undefined;
+      this.context = undefined;
+      this.run = this.makeRun();
+      if (started) {
+        // The new agent starts with an empty memory: it is handed the conversation with the next message.
+        this.handover = buildHandover(this.items, from, fromModel, this.cwd);
+        this.addItem({
+          kind: 'divider',
+          id: randomUUID(),
+          from,
+          to: provider,
+          ...(fromModel ? { fromModel } : {}),
+          ...(prefs.model ? { toModel: prefs.model } : {}),
+          ts: Date.now(),
+        });
+        this.log('notice', `Switched from ${agentName(from)} to ${agentName(provider)}`);
+        bus.emit('sessions_changed');
+      }
+    } else {
+      await this.run.configure(prefs.model, prefs.effort);
+      if (prefs.model !== this.model) this.activeModel = undefined;
+      this.model = prefs.model;
+      this.effort = prefs.effort;
     }
-    this.model = prefs.model;
-    this.effort = prefs.effort;
-    // The next reply says which model the new choice really is; until then nothing is known.
-    if (modelChanged) this.activeModel = undefined;
-    savePrefs(this.sessionId, prefs);
+    savePrefs(this.sessionId, { provider, model: prefs.model, effort: prefs.effort });
     this.log('notice', `Model set to ${prefs.model ?? 'default'}, effort ${prefs.effort ?? 'default'}`);
     this.emitMeta();
   }
 
   resolvePermission(id: string, decision: PermissionDecision, answers?: Record<string, string>): void {
-    const entry = this.pending.get(id);
-    if (!entry) return;
-    const { request, suggestions } = entry;
+    const request = this.requests.get(id);
+    if (!request) return;
     const verdict = decision === 'deny' ? 'Denied' : decision === 'always' ? 'Always allowed' : 'Allowed';
     this.log('permission', `${verdict}: ${request.toolName} ${clip(JSON.stringify(request.input), 500)}`);
-    if (decision === 'deny') {
-      entry.finish({ behavior: 'deny', message: 'The user declined this action.' });
-      return;
-    }
-    const updatedInput = answers ? { ...request.input, answers } : request.input;
-    entry.finish({
-      behavior: 'allow',
-      updatedInput,
-      ...(decision === 'always' && request.canAlways && suggestions ? { updatedPermissions: suggestions } : {}),
-    });
+    this.run.answer(id, decision, answers);
   }
 
-  /** Stops the Claude Code process. The transcript stays, and the next prompt resumes the session. */
+  /** Stops the agent's process. The conversation stays, and the next prompt resumes it. */
   shutdown(): void {
-    this.input?.close();
-    this.q?.close();
+    this.run.shutdown();
   }
 
-  /** Stops the process and waits until it has really gone, so its files can be touched. */
-  private async settle(): Promise<void> {
-    if (!this.q) return;
-    this.shutdown();
-    await this.pumping;
-  }
-
-  /** Stops the Claude Code process and waits for it to go. The next prompt starts it again. */
+  /** Stops the agent's process and waits for it to go. The next prompt starts it again. */
   async stopProcess(): Promise<void> {
-    await this.settle();
+    await this.run.settle();
   }
 
   /** Tells anyone looking at the chat that its folder was deleted. */
@@ -323,25 +293,27 @@ export class LiveSession {
     this.notice('info', `The folder ${folderLabel(this.cwd)} was deleted. Recreate it or change this chat's folder to carry on.`);
   }
 
-  /** Gives the chat a title of the person's choosing. */
+  /** Gives the chat a title of the person's choosing, in every provider's record of it. */
   async rename(title: string): Promise<void> {
-    if (this.onDisk) await renameSession(this.sessionId, title);
+    for (const segment of this.segments) await backend(segment.provider).rename(segment.sessionId, title);
     this.title = title;
+    noteChat(this.sessionId, { title });
     this.emitMeta();
     bus.emit('sessions_changed');
   }
 
   /**
    * Makes the chat work in another folder from the next message on. Nothing
-   * in either folder is moved or copied: only where Claude Code runs changes.
+   * in either folder is moved or copied: only where the agent runs changes.
    */
   async move(cwd: string): Promise<void> {
-    if (this.state === 'running') throw new Error('Wait for Claude to finish before changing the folder.');
+    if (this.state === 'running') throw new Error(`Wait for ${agentName(this.provider)} to finish before changing the folder.`);
     if (cwd === this.cwd) return;
-    await this.settle();
-    if (this.onDisk) await relocateTranscript(this.sessionId, cwd);
+    await this.run.settle();
+    await this.run.relocate(cwd);
     this.cwd = cwd;
     saveMovedFolder(this.sessionId, folderLabel(cwd));
+    noteChat(this.sessionId, { cwd });
     this.gitSummary = undefined;
     this.lookAtGitSoon(0);
     this.emitMeta();
@@ -351,7 +323,7 @@ export class LiveSession {
 
   /**
    * Looks at the folder's git repository again after a moment. Calls close together, such as one
-   * per tool Claude runs, end up as a single look.
+   * per tool the agent runs, end up as a single look.
    */
   private lookAtGitSoon(delay = 1500): void {
     clearTimeout(this.gitTimer);
@@ -378,11 +350,10 @@ export class LiveSession {
     return status;
   }
 
-  /** Stops one piece of background work. Claude Code then reports it as stopped. */
+  /** Stops one piece of background work. The agent then reports it as stopped. */
   async stopTask(taskId: string): Promise<void> {
-    if (!this.q) throw new Error('Nothing is running in this chat.');
     this.log('notice', `Stopping background task ${taskId}`);
-    await this.q.stopTask(taskId);
+    await this.run.stopTask(taskId);
   }
 
   /** Creates this chat's folder again, empty, after it was deleted. */
@@ -396,382 +367,182 @@ export class LiveSession {
 
   /** Ends the chat for good: stops its process and tells anyone looking at it. */
   async discard(): Promise<void> {
-    await this.settle();
-    for (const entry of [...this.pending.values()]) entry.finish({ behavior: 'deny', message: 'The chat was deleted.' });
+    for (const id of [...this.requests.keys()]) this.run.answer(id, 'deny');
+    await this.run.settle();
     const gone: ServerMessage = { t: 'error', sessionId: this.sessionId, message: 'This chat was deleted.' };
     for (const listener of this.listeners) listener(gone);
     this.listeners.clear();
   }
 
-  get savedOnDisk(): boolean {
-    return this.onDisk;
-  }
-
-  // ---- the Claude Code process ----------------------------------------------
-
-  private start(): void {
-    if (this.q) return;
-    const input = new InputQueue();
-    const options: Options = {
-      cwd: this.cwd,
-      permissionMode: this.mode,
-      includePartialMessages: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
-      canUseTool: this.canUseTool,
-      hooks: { PreToolUse: [{ hooks: [this.autoFence] }] },
-      ...(this.model ? { model: this.model } : {}),
-      ...(this.effort ? { effort: this.effort } : {}),
-      ...(this.onDisk ? { resume: this.sessionId } : { sessionId: this.sessionId }),
-      ...(config.claudePath ? { pathToClaudeCodeExecutable: config.claudePath } : {}),
-    };
-    const q = query({ prompt: input, options });
-    this.input = input;
-    this.q = q;
-    this.pumping = this.pump(q);
-  }
-
-  private async pump(q: Query): Promise<void> {
-    try {
-      for await (const message of q) this.handle(message);
-    } catch (err) {
-      this.notice('error', err instanceof Error ? err.message : String(err));
-    } finally {
-      if (this.q === q) {
-        this.q = undefined;
-        this.input = undefined;
-      }
-      for (const entry of [...this.pending.values()]) {
-        entry.finish({ behavior: 'deny', message: 'The session ended before this was answered.' });
-      }
-      this.clearDrafts();
-      this.interrupting = false;
-      this.tasks.endAll();
-      this.setState('idle');
-      this.emitMeta();
-      bus.emit('sessions_changed');
-    }
-  }
-
-  private handle(msg: SDKMessage): void {
-    this.lastActivity = Date.now();
-    if (this.tasks.handle(msg)) this.emitMeta();
-    // A background agent being done is said in the conversation too, as it is when the chat is loaded again later.
-    if (msg.type === 'system' && msg.subtype === 'task_notification') {
-      const agent = this.tasks.agent(msg.task_id);
-      if (agent) this.notice('info', agentReport(agent.agentType, msg.status));
-    }
-    switch (msg.type) {
-      case 'system':
-        if (msg.subtype === 'init') {
-          this.activeModel = msg.model;
-          rememberTools(msg.tools);
-          this.adoptMode(msg.permissionMode);
-          this.emitMeta();
-        } else if (msg.subtype === 'status') {
-          if (isPermissionMode(msg.permissionMode) && msg.permissionMode !== this.mode) {
-            this.adoptMode(msg.permissionMode);
-            this.emitMeta();
-          }
-        } else if (msg.subtype === 'compact_boundary') {
-          this.notice('info', 'Earlier conversation was compacted to free up context.');
-        }
-        break;
-
-      case 'stream_event':
-        if (msg.parent_tool_use_id === null) this.handleStream(msg.event);
-        break;
-
-      case 'assistant': {
-        this.onDisk = true;
-        const parent = msg.parent_tool_use_id;
-        // An agent working in the background keeps talking after the turn has ended; only the main
-        // conversation means Claude is working on the chat.
-        if (!parent) this.setState('running');
-        if (!parent) {
-          // Each reply names the model that wrote it, which keeps the header right after a switch.
-          const model = modelOf(msg.message);
-          if (model && model !== this.activeModel) {
-            this.activeModel = model;
-            this.emitMeta();
-          }
-          // Thinking can arrive with its text withheld: the draft has nothing to turn into.
-          for (const block of blocksOf(msg.message.content)) {
-            if (block.type === 'thinking' && !String(block.thinking ?? '').trim()) {
-              const id = this.takeDraft('thinking');
-              if (id) this.emit({ t: 'draft_end', id });
-            }
-          }
-        }
-        const stamp: Stamp = { ts: Date.now() };
-        if (!parent) {
-          stamp.model = modelOf(msg.message);
-          if (this.effort) stamp.effort = this.effort;
-        }
-        const added = assistantItems(msg.uuid, msg.message.content, parent, stamp);
-        if (!parent && !this.effort) this.unsigned.set(msg.uuid, [...(this.unsigned.get(msg.uuid) ?? []), ...added]);
-        for (const item of added) this.addItem(item, parent ? undefined : this.takeDraft(item.kind));
-        break;
-      }
-
-      case 'user':
-        for (const block of blocksOf(msg.message.content)) {
-          if (block.type !== 'tool_result') continue;
-          const tool = this.tools.get(String(block.tool_use_id));
-          if (!tool) continue;
-          tool.result = { text: toolResultText(block.content), isError: block.is_error === true };
-          this.log('tool_result', `${tool.name}: ${clip(tool.result.text)}`, tool.result.isError);
-          this.emit({ t: 'tool_result', id: tool.id, ...tool.result });
-          // Any tool may have changed files (Bash as much as Edit), so the repository is looked at again.
-          this.lookAtGitSoon();
-        }
-        break;
-
-      case 'result':
-        this.clearDrafts();
-        if (this.interrupting) {
-          this.notice('info', 'Stopped.');
-        } else if (msg.subtype !== 'success') {
-          this.notice('error', msg.errors.length ? msg.errors.join('\n') : `The turn ended early (${msg.subtype}).`);
-        }
-        this.interrupting = false;
-        this.setState('idle');
-        bus.emit('sessions_changed');
-        void this.signReplies();
-        void this.measure();
-        this.lookAtGitSoon(300);
-        break;
-
-      case 'rate_limit_event':
-        // The plan's limits moved: read them again while a process is at hand.
-        if (this.q) void refreshUsageWith(this.q);
-        break;
-    }
+  /** Every provider conversation this chat is made of, for listing and deleting. */
+  get parts(): readonly Segment[] {
+    return this.segments;
   }
 
   /**
-   * The full breakdown of what is in the context window, as /context shows it.
-   * A chat without a running process gets one: Claude Code has to be running
-   * to count. It then stays until it has been idle for a while, like after a turn.
+   * What fills the context window. A chat without a running process may get
+   * one: some providers have to be running to count.
    */
   async contextDetail(): Promise<ContextDetail> {
-    if (!isFolder(this.cwd)) throw new Error(`This chat's folder, ${folderLabel(this.cwd)}, was deleted.`);
     this.lastActivity = Date.now();
-    this.start();
-    const usage = await this.q!.getContextUsage({ detail: 'full' });
-    const home = homedir();
-    const short = (path: string) =>
-      insideDir(path, this.cwd)
-        ? `./${path.slice(this.cwd.length + 1)}`
-        : insideDir(path, home)
-          ? `~/${path.slice(home.length + 1)}`
-          : path;
-    const servers = new Map<string, { name: string; tools: number; tokens: number }>();
-    for (const tool of usage.mcpTools) {
-      const server = servers.get(tool.serverName) ?? { name: tool.serverName, tools: 0, tokens: 0 };
-      server.tools++;
-      server.tokens += tool.tokens;
-      servers.set(tool.serverName, server);
-    }
-    // The conversation's own parts. Claude Code's "attachments" figure also counts things the other
-    // categories already hold (a snapshot of the system prompt, the skills list), so instead the rest
-    // of the Messages row is shown as one part, and the parts add up to that row.
-    const m = usage.messageBreakdown;
-    const inMessages = usage.categories.find((row) => row.id === 'messages')?.tokens ?? 0;
-    const conversation = m
-      ? [
-          { label: 'Your messages', tokens: m.userMessageTokens },
-          { label: "Claude's replies", tokens: m.assistantMessageTokens },
-          { label: 'Tool calls', tokens: m.toolCallTokens },
-          { label: 'Tool results', tokens: m.toolResultTokens },
-        ]
-      : [];
-    const said = conversation.reduce((sum, row) => sum + row.tokens, 0);
-    if (m && inMessages > said) conversation.push({ label: 'Added by Claude Code', tokens: inMessages - said });
-    const detail: ContextDetail = {
-      model: usage.model,
-      tokens: usage.totalTokens,
-      max: usage.maxTokens,
-      percent: Math.round(usage.percentage),
-      measuredAt: Date.now(),
-      ...(usage.isAutoCompactEnabled && usage.autoCompactThreshold ? { autoCompactAt: usage.autoCompactThreshold } : {}),
-      categories: usage.categories
-        .filter((row) => row.tokens > 0)
-        .map((row) => ({ id: row.id ?? 'other', name: row.name, tokens: row.tokens, kind: row.kind })),
-      messages: conversation.filter((row) => row.tokens > 0),
-      memoryFiles: usage.memoryFiles.map((file) => ({ path: short(file.path), type: file.type, tokens: file.tokens })),
-      mcpServers: [...servers.values()].sort((a, b) => b.tokens - a.tokens),
-      ...(usage.skills?.tokens ? { skills: { included: usage.skills.includedSkills, total: usage.skills.totalSkills, tokens: usage.skills.tokens } } : {}),
-      agents: usage.agents.map((agent) => ({ name: agent.agentType, tokens: agent.tokens })).sort((a, b) => b.tokens - a.tokens),
-    };
-    // The ring by the send button shows the same figure, so it is brought up to date too.
-    this.context = { tokens: detail.tokens, max: detail.max, percent: detail.percent };
-    this.emitMeta();
-    return detail;
+    return this.run.contextDetail();
   }
 
-  /** After a turn: how full the context window is now, and how much of the plan's limits is used. */
-  private async measure(): Promise<void> {
-    const q = this.q;
-    if (!q) return;
-    try {
-      const usage = await q.getContextUsage({ detail: 'summary' });
-      this.context = { tokens: usage.totalTokens, max: usage.maxTokens, percent: Math.round(usage.percentage) };
-      this.emitMeta();
-    } catch {
-      // Nothing to show for this turn; the next one tries again.
-    }
-    await refreshUsageWith(q);
-  }
+  // ---- what the agent reports (RunHost) -------------------------------------
 
-  /**
-   * With "default effort" only Claude Code knows what a reply ran at, and it
-   * says so in the transcript file rather than on the reply. Once a turn is
-   * over the file is read and the replies from it are signed.
-   */
-  private async signReplies(): Promise<void> {
-    if (!this.unsigned.size) return;
-    const waiting = this.unsigned;
-    this.unsigned = new Map();
-    const efforts = await readEfforts(this.sessionId);
-    let changed = false;
-    for (const [uuid, items] of waiting) {
-      const effort = efforts.get(uuid);
-      if (!effort) continue;
-      for (const item of items) item.effort = effort;
-      changed = true;
-    }
-    if (!changed) return;
-    const snapshot = this.snapshot();
-    for (const listener of this.listeners) listener(snapshot);
-  }
-
-  private handleStream(event: Extract<SDKMessage, { type: 'stream_event' }>['event']): void {
+  running(): void {
+    this.lastActivity = Date.now();
     this.setState('running');
-    if (event.type === 'message_start') {
-      this.streamDrafts.clear();
-    } else if (event.type === 'content_block_start') {
-      const block = event.content_block;
-      let draft: Draft | undefined;
-      if (block.type === 'text') draft = { id: randomUUID(), kind: 'text', text: '' };
-      else if (block.type === 'thinking') draft = { id: randomUUID(), kind: 'thinking', text: '' };
-      else if (block.type === 'tool_use') draft = { id: randomUUID(), kind: 'tool', text: block.name };
-      if (!draft) return;
-      this.streamDrafts.set(event.index, draft.id);
-      this.drafts.push(draft);
-      this.emit({ t: 'draft', draft });
-    } else if (event.type === 'content_block_delta') {
-      const id = this.streamDrafts.get(event.index);
-      const draft = id ? this.drafts.find((d) => d.id === id) : undefined;
-      if (!draft) return;
-      const text =
-        event.delta.type === 'text_delta' ? event.delta.text : event.delta.type === 'thinking_delta' ? event.delta.thinking : '';
-      if (!text) return;
-      draft.text += text;
-      this.emit({ t: 'draft_delta', id: draft.id, text });
-    }
   }
 
-  /**
-   * The first path in a permission request that points outside this chat's
-   * folder, if any. Claude Code only asks about paths beyond its working
-   * directory, so refusing these keeps file access inside the folder.
-   */
-  private pathOutsideFolder(input: Record<string, unknown>, blockedPath: string | undefined): string | undefined {
-    for (const value of [blockedPath, input.file_path, input.notebook_path, input.path]) {
-      if (typeof value !== 'string' || !value) continue;
-      if (value.startsWith('~') || !insideDir(resolve(this.cwd, value), this.cwd)) return value;
-    }
-    return undefined;
+  turnEnded(): void {
+    this.lastActivity = Date.now();
+    this.setState('idle');
+    bus.emit('sessions_changed');
+    this.lookAtGitSoon(300);
   }
 
-  /** Takes the mode Claude Code reports, saying so when it would not run in auto mode. */
-  private adoptMode(reported: unknown): void {
-    if (!isPermissionMode(reported)) return;
-    // Starting in auto mode and falling back is expected where it is unavailable; only a deliberate choice is worth a word.
-    if (this.mode === 'auto' && reported !== 'auto' && this.choseAuto) {
-      this.notice('info', 'Auto mode is not available for this account or model, so Claude will ask before changes instead.');
-    }
-    if (reported !== 'auto') this.choseAuto = false;
-    this.mode = reported;
+  processEnded(): void {
+    for (const id of [...this.requests.keys()]) this.answered(id);
+    this.clearDrafts();
+    this.setState('idle');
+    this.emitMeta();
+    bus.emit('sessions_changed');
   }
 
-  /**
-   * Claude Code's own directory for this chat's folder: memory and saved tool
-   * output live there, and Claude Code reaches them without asking.
-   */
-  private get ownClaudeDir(): string {
-    const root = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
-    return join(root, 'projects', projectDirName(this.cwd));
+  saved(): void {
+    this.lastActivity = Date.now();
+    const id = this.run.sessionId;
+    if (!id) return;
+    const last = this.segments.at(-1);
+    if (last && last.provider === this.run.provider && last.sessionId === id) return;
+    this.segments.push({ provider: this.run.provider, sessionId: id, startedAt: Date.now(), ...(this.model ? { model: this.model } : {}) });
+    saveSegments(this.sessionId, this.segments, { cwd: this.cwd, ...(this.title ? { title: this.title } : {}) });
+    // A conversation started after a switch would be titled by its first message, the handover: it gets the chat's title.
+    if (this.segments.length > 1 && this.title) void backend(this.run.provider).rename(id, this.title).catch(() => undefined);
   }
 
-  /**
-   * In auto mode a classifier approves most calls itself, so they never reach
-   * `canUseTool` and its folder check. This hook applies the same check to
-   * every file path a tool names before the classifier is asked. Shell
-   * commands are not covered: the classifier is what judges those.
-   */
-  private autoFence: HookCallback = async (input) => {
-    if (this.mode !== 'auto' || input.hook_event_name !== 'PreToolUse') return { continue: true };
-    const args = (input.tool_input ?? {}) as Record<string, unknown>;
-    const outside = this.pathOutsideFolder(args, undefined);
-    if (!outside || (!outside.startsWith('~') && insideDir(resolve(this.cwd, outside), this.ownClaudeDir))) {
-      return { continue: true };
-    }
-    this.log('permission', `Refused automatically: ${input.tool_name} wanted ${outside}, outside the chat's folder`, true);
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: `Access to ${outside} was refused: this chat can only work with files inside its own folder (${this.cwd}).`,
-      },
-    };
-  };
+  setActiveModel(model: string | undefined): void {
+    if (!model || model === this.activeModel) return;
+    this.activeModel = model;
+    this.emitMeta();
+  }
 
-  private canUseTool: CanUseTool = (toolName, input, opts) =>
-    new Promise<PermissionResult>((resolve) => {
-      const outside = this.pathOutsideFolder(input, opts.blockedPath);
-      if (outside) {
-        this.log('permission', `Refused automatically: ${toolName} wanted ${outside}, outside the chat's folder`, true);
-        resolve({
-          behavior: 'deny',
-          message: `Access to ${outside} was refused: this chat can only work with files inside its own folder (${this.cwd}).`,
-        });
-        return;
-      }
-      const id = randomUUID();
-      const request: PermissionRequest = {
-        id,
-        toolName,
-        input,
-        title: opts.title,
-        description: opts.description,
-        reason: opts.decisionReason,
-        canAlways: !!opts.suggestions?.length && !opts.suppressAlwaysAllowRule,
-      };
-      const onAbort = () => finish({ behavior: 'deny', message: 'Cancelled.' });
-      const finish = (result: PermissionResult) => {
-        if (!this.pending.delete(id)) return;
-        opts.signal.removeEventListener('abort', onAbort);
-        this.emit({ t: 'permission_done', id });
-        resolve(result);
-      };
-      this.pending.set(id, { request, suggestions: opts.suggestions, finish });
-      opts.signal.addEventListener('abort', onAbort, { once: true });
-      this.emit({ t: 'permission', request });
-    });
+  adoptMode(mode: PermissionMode, note?: string): void {
+    if (note) this.notice('info', note);
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.emitMeta();
+  }
 
-  // ---- transcript bookkeeping -----------------------------------------------
+  setContext(usage: ContextUsage): void {
+    this.context = usage;
+    this.emitMeta();
+  }
 
-  private log(kind: LogKind, text: string, error = false): void {
+  tasksChanged(): void {
+    this.emitMeta();
+  }
+
+  startDraft(kind: Draft['kind'], text: string): string {
+    const draft: Draft = { id: randomUUID(), kind, text };
+    this.drafts.push(draft);
+    this.emit({ t: 'draft', draft });
+    return draft.id;
+  }
+
+  appendDraft(id: string, text: string): void {
+    const draft = this.drafts.find((d) => d.id === id);
+    if (!draft || !text) return;
+    draft.text += text;
+    this.emit({ t: 'draft_delta', id, text });
+  }
+
+  endDraft(id: string): void {
+    this.emit({ t: 'draft_end', id });
+  }
+
+  /** Removes and returns the oldest draft of a kind, once its finished content has arrived. */
+  takeDraft(kind: Item['kind']): string | undefined {
+    const index = this.drafts.findIndex((d) => d.kind === kind);
+    if (index === -1) return undefined;
+    return this.drafts.splice(index, 1)[0]!.id;
+  }
+
+  clearDrafts(): void {
+    if (!this.drafts.length) return;
+    this.drafts = [];
+    this.emit({ t: 'drafts_clear' });
+  }
+
+  addItem(item: Item, replaces?: string): void {
+    this.items.push(item);
+    if (item.kind === 'tool') this.tools.set(item.id, item);
+    // Everything added here is new activity; history loaded from disk never passes through.
+    if (item.kind === 'user') this.log('prompt', item.text);
+    else if (item.kind === 'text') this.log('response', item.text);
+    else if (item.kind === 'tool') this.log('tool', `${item.name} ${clip(JSON.stringify(item.input))}`);
+    else if (item.kind === 'notice') this.log('notice', item.text, item.level === 'error');
+    this.emit({ t: 'item', item, ...(replaces ? { replaces } : {}) });
+  }
+
+  updateItem(item: Item): void {
+    const index = this.items.findIndex((existing) => existing.id === item.id);
+    if (index === -1) return this.addItem(item);
+    this.items[index] = item;
+    if (item.kind === 'tool') this.tools.set(item.id, item);
+    this.emit({ t: 'item', item, replaces: item.id });
+  }
+
+  tool(id: string): ToolItem | undefined {
+    return this.tools.get(id);
+  }
+
+  toolResult(id: string, text: string, isError: boolean): void {
+    const tool = this.tools.get(id);
+    if (!tool) return;
+    tool.result = { text, isError };
+    this.log('tool_result', `${tool.name}: ${clip(text)}`, isError);
+    this.emit({ t: 'tool_result', id, text, isError });
+    // Any tool may have changed files (a shell command as much as an edit), so the repository is looked at again.
+    this.lookAtGitSoon();
+  }
+
+  ask(request: PermissionRequest): void {
+    this.requests.set(request.id, request);
+    this.emit({ t: 'permission', request });
+  }
+
+  answered(id: string): void {
+    if (this.requests.delete(id)) this.emit({ t: 'permission_done', id });
+  }
+
+  notice(level: 'info' | 'error', text: string): void {
+    this.addItem({ kind: 'notice', id: randomUUID(), level, text, ts: Date.now() });
+  }
+
+  log(kind: LogKind, text: string, error = false): void {
     log({
       sessionId: this.sessionId,
       folder: folderLabel(this.cwd),
+      provider: this.provider,
       kind,
       text,
       ...(kind === 'response' && this.activeModel ? { model: this.activeModel } : {}),
       ...(error ? { error: true } : {}),
     });
   }
+
+  filesChanged(delay?: number): void {
+    this.lookAtGitSoon(delay);
+  }
+
+  resnapshot(): void {
+    const snapshot = this.snapshot();
+    for (const listener of this.listeners) listener(snapshot);
+  }
+
+  // ---- plumbing -------------------------------------------------------------
 
   private emit(event: SessionEvent): void {
     const msg: ServerMessage = { t: 'event', sessionId: this.sessionId, event };
@@ -787,35 +558,6 @@ export class LiveSession {
     this.state = state;
     this.emitMeta();
   }
-
-  private addItem(item: Item, replaces?: string): void {
-    this.items.push(item);
-    if (item.kind === 'tool') this.tools.set(item.id, item);
-    // Everything added here is new activity; history loaded from disk never passes through.
-    if (item.kind === 'user') this.log('prompt', item.text);
-    else if (item.kind === 'text') this.log('response', item.text);
-    else if (item.kind === 'tool') this.log('tool', `${item.name} ${clip(JSON.stringify(item.input))}`);
-    else if (item.kind === 'notice') this.log('notice', item.text, item.level === 'error');
-    this.emit({ t: 'item', item, ...(replaces ? { replaces } : {}) });
-  }
-
-  private notice(level: 'info' | 'error', text: string): void {
-    this.addItem({ kind: 'notice', id: randomUUID(), level, text, ts: Date.now() });
-  }
-
-  /** Removes and returns the oldest draft of a kind, once its finished content has arrived. */
-  private takeDraft(kind: Item['kind']): string | undefined {
-    const index = this.drafts.findIndex((d) => d.kind === kind);
-    if (index === -1) return undefined;
-    return this.drafts.splice(index, 1)[0]!.id;
-  }
-
-  private clearDrafts(): void {
-    this.streamDrafts.clear();
-    if (!this.drafts.length) return;
-    this.drafts = [];
-    this.emit({ t: 'drafts_clear' });
-  }
 }
 
 // ---- registry ---------------------------------------------------------------
@@ -823,9 +565,14 @@ export class LiveSession {
 const live = new Map<string, LiveSession>();
 const loading = new Map<string, Promise<LiveSession>>();
 
-export function createSession(cwd: string): LiveSession {
-  const session = new LiveSession({ sessionId: randomUUID(), cwd, onDisk: false, prefs: defaultPrefs() });
-  live.set(session.sessionId, session);
+/** A new chat in a folder, on the agent it should start on (see startingProvider). */
+export function createSession(cwd: string, provider?: Provider): LiveSession {
+  const chatId = randomUUID();
+  const defaults = defaultPrefs();
+  // The last choice carries over when it was for this agent; otherwise the agent picks its own default.
+  const prefs = !provider || provider === (defaults.provider ?? 'claude') ? defaults : { provider, model: null, effort: null };
+  const session = new LiveSession({ chatId, cwd, prefs, segments: [] });
+  live.set(chatId, session);
   return session;
 }
 
@@ -842,20 +589,65 @@ export function openSession(sessionId: string): Promise<LiveSession> {
   return pending;
 }
 
-async function loadFromDisk(sessionId: string): Promise<LiveSession> {
-  const info = await getSessionInfo(sessionId);
+/**
+ * A chat with no record of its own is one provider's conversation under its
+ * own id: every chat from before Codex, and conversations started elsewhere
+ * (the claude or codex command) in a folder clack knows.
+ */
+async function plainSegments(chatId: string): Promise<Segment[] | undefined> {
+  for (const b of backends()) {
+    const found = await b.find(chatId).catch(() => undefined);
+    if (found) return [{ provider: b.provider, sessionId: chatId, startedAt: found.lastModified }];
+  }
+  return undefined;
+}
+
+async function loadFromDisk(chatId: string): Promise<LiveSession> {
+  const segments = segmentsOf(chatId) ?? (await plainSegments(chatId));
+  if (!segments?.length) throw new Error('Session not found');
+  const last = segments.at(-1)!;
+  const record = recordOf(chatId);
+  // The provider's own record says where the chat works; clack's record stands in where the provider's list misses it.
+  const info = (await backend(last.provider).find(last.sessionId).catch(() => undefined)) ??
+    (record?.cwd ? { cwd: record.cwd, title: record.title } : undefined);
   // Sessions from anywhere else on this computer are treated as if they did not exist.
   if (!info?.cwd || !insideRoots(info.cwd)) throw new Error('Session not found');
-  const [messages, efforts] = await Promise.all([getSessionMessages(sessionId), readEfforts(sessionId)]);
+  const items: Item[] = [];
+  let before: Segment | undefined;
+  for (const segment of segments) {
+    if (before && before.provider !== segment.provider) {
+      items.push({
+        kind: 'divider',
+        id: `${segment.sessionId}:switch`,
+        from: before.provider,
+        to: segment.provider,
+        ...(before.model ? { fromModel: before.model } : {}),
+        ...(segment.model ? { toModel: segment.model } : {}),
+        ts: segment.startedAt,
+      });
+    }
+    // A provider that is switched off now still has its part of the chat on disk, but cannot read it back.
+    const part = await backend(segment.provider)
+      .history(segment.sessionId)
+      .catch((err: unknown): Item[] => [
+        { kind: 'notice', id: `${segment.sessionId}:missing`, level: 'error', text: `This part of the chat could not be read (${err instanceof Error ? err.message : String(err)}).` },
+      ]);
+    for (const item of part) {
+      // The conversation handed over at a switch is for the agent, not for reading again here.
+      if (item.kind === 'user') item.text = stripHandover(item.text).text;
+      items.push(item);
+    }
+    before = segment;
+  }
   const session = new LiveSession({
-    sessionId,
-    cwd: currentCwd(sessionId, info.cwd),
-    onDisk: true,
-    prefs: prefsFor(sessionId),
-    items: itemsFromHistory(messages, efforts),
-    title: info.customTitle || info.summary || info.firstPrompt,
+    chatId,
+    cwd: currentCwd(chatId, info.cwd),
+    prefs: prefsFor(chatId),
+    segments: [...segments],
+    items,
+    title: record?.title ?? info.title,
   });
-  live.set(sessionId, session);
+  live.set(chatId, session);
   return session;
 }
 
@@ -864,8 +656,8 @@ async function loadFromDisk(sessionId: string): Promise<LiveSession> {
  * wins over what the transcript says, as long as that folder still exists
  * under data/sessions.
  */
-function currentCwd(sessionId: string, recorded: string): string {
-  const moved = movedFolder(sessionId);
+function currentCwd(chatId: string, recorded: string): string {
+  const moved = movedFolder(chatId);
   if (!moved) return recorded;
   const cwd = resolve(config.sessionsDir, moved);
   return insideRoots(cwd) ? cwd : recorded;
@@ -913,17 +705,18 @@ export async function restoreFolder(sessionId: string): Promise<void> {
 export async function setArchived(sessionId: string, archived: boolean): Promise<void> {
   const session = await openSession(sessionId);
   if (!session.savedOnDisk) throw new Error('This chat has nothing saved yet. Delete it instead.');
-  await (archived ? archiveSession(sessionId) : unarchiveSession(sessionId));
+  for (const part of session.parts) await backend(part.provider).setArchived(part.sessionId, archived);
   bus.emit('sessions_changed');
 }
 
-/** Deletes a chat's conversation for good. The files in its folder stay. */
+/** Deletes a chat's conversation for good, on every provider it ran on. The files in its folder stay. */
 export async function deleteChat(sessionId: string): Promise<void> {
   const session = await openSession(sessionId);
   await session.discard();
   live.delete(sessionId);
-  if (session.savedOnDisk) await deleteSession(sessionId);
+  for (const part of session.parts) await backend(part.provider).remove(part.sessionId);
   forgetSession(sessionId);
+  forgetChat(sessionId);
   bus.emit('sessions_changed');
 }
 
@@ -938,7 +731,7 @@ export async function deleteFolder(name: unknown): Promise<void> {
   if (inside.some((session) => session.state === 'running' || session.hasPending || session.hasBackgroundWork)) {
     throw new Error('A chat in this folder is still working. Stop it or wait for it to finish first.');
   }
-  // Their Claude Code processes would be left in a folder that is gone; they start again on the next message.
+  // Their agents' processes would be left in a folder that is gone; they start again on the next message.
   await Promise.all(inside.map((session) => session.stopProcess()));
   await removeFolder(path);
   for (const session of inside) session.folderGone();
@@ -963,32 +756,59 @@ export async function forgetRoot(path: unknown): Promise<void> {
 }
 
 export async function listSummaries(): Promise<SessionSummary[]> {
-  // Claude Code keeps every session on this computer in one place; only the
-  // ones that ran inside data/sessions belong to clack.
-  const infos = await listSessions();
+  // Each provider keeps every conversation on this computer in one place; only
+  // the ones that ran in a folder clack knows belong to it.
+  const lists = await Promise.all(backends().map((b) => b.list().catch((): StoredSession[] => [])));
   const seen = new Set<string>();
   const summaries: SessionSummary[] = [];
-  for (const info of infos) {
-    if (!info.cwd || !insideRoots(info.cwd)) continue;
-    seen.add(info.sessionId);
-    const open = live.get(info.sessionId);
-    const cwd = open?.cwd ?? currentCwd(info.sessionId, info.cwd);
+  for (const stored of lists.flat()) {
+    if (!insideRoots(stored.cwd)) continue;
+    // A chat that switched provider is listed once, by the conversation it carries on in.
+    if (isEarlierSegment(stored.provider, stored.sessionId)) continue;
+    const chatId = chatOf(stored.provider, stored.sessionId) ?? stored.sessionId;
+    if (seen.has(chatId)) continue;
+    seen.add(chatId);
+    const open = live.get(chatId);
+    const cwd = open?.cwd ?? currentCwd(chatId, stored.cwd);
     summaries.push({
-      sessionId: info.sessionId,
-      title: info.customTitle || info.summary || info.firstPrompt || 'Untitled',
+      sessionId: chatId,
+      provider: open?.provider ?? stored.provider,
+      ...(stored.model ? { model: stored.model } : {}),
+      title: recordOf(chatId)?.title ?? stored.title ?? open?.title ?? 'Untitled',
       folder: folderLabel(cwd),
       missing: !isFolder(cwd),
-      gitBranch: info.gitBranch,
-      lastModified: info.lastModified,
+      ...(stored.gitBranch ? { gitBranch: stored.gitBranch } : {}),
+      lastModified: stored.lastModified,
       running: open?.state === 'running',
-      archived: info.archived === true,
+      archived: stored.archived,
     });
   }
-  // A brand-new chat is not on disk until Claude Code has answered once.
+  // A chat that switched agent, whose latest part its provider does not list (or not yet): from clack's own record.
+  for (const [chatId, record] of allRecords()) {
+    if (seen.has(chatId) || !record.cwd || !insideRoots(record.cwd)) continue;
+    const last = record.segments.at(-1);
+    if (!last) continue;
+    seen.add(chatId);
+    const open = live.get(chatId);
+    const cwd = open?.cwd ?? record.cwd;
+    summaries.push({
+      sessionId: chatId,
+      provider: open?.provider ?? last.provider,
+      ...(last.model ? { model: last.model } : {}),
+      title: open?.title ?? record.title ?? 'Untitled',
+      folder: folderLabel(cwd),
+      missing: !isFolder(cwd),
+      lastModified: open?.lastActivity ?? last.startedAt,
+      running: open?.state === 'running',
+      archived: false,
+    });
+  }
+  // A brand-new chat is not on disk until its agent has answered once.
   for (const session of live.values()) {
     if (seen.has(session.sessionId) || !session.items.length) continue;
     summaries.push({
       sessionId: session.sessionId,
+      provider: session.provider,
       title: session.title ?? 'New chat',
       folder: folderLabel(session.cwd),
       lastModified: session.lastActivity,
@@ -1000,7 +820,7 @@ export async function listSummaries(): Promise<SessionSummary[]> {
   return summaries.sort((a, b) => b.lastModified - a.lastModified).slice(0, 200);
 }
 
-/** Frees idle Claude Code processes and forgets sessions nobody is looking at. */
+/** Frees idle agent processes and forgets sessions nobody is looking at. */
 function reap(): void {
   const now = Date.now();
   for (const session of live.values()) {
@@ -1016,4 +836,5 @@ setInterval(reap, 60_000).unref();
 
 export function shutdownAll(): void {
   for (const session of live.values()) session.shutdown();
+  for (const b of backends()) b.shutdown();
 }

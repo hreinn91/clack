@@ -1,11 +1,9 @@
-import { EventEmitter } from 'node:events';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { PlanUsage, UsageWindow } from '../../shared/protocol.ts';
-import { config } from './config.ts';
+import type { PlanUsage, UsageWindow } from '../../../../shared/protocol.ts';
+import { config } from '../../config.ts';
 
-/** Emits 'changed' with the new figures whenever they are read again. */
-export const usageBus = new EventEmitter();
+import { usageBus } from '../bus.ts';
 
 /** How long figures are served without asking again. Finished turns bring fresh ones on their own. */
 const MAX_AGE_MS = 5 * 60_000;
@@ -51,6 +49,7 @@ async function ask(q: Query): Promise<PlanUsage> {
   }
   const extra = limits?.extra_usage;
   return {
+    provider: 'claude',
     available: raw.rate_limits_available && windows.length > 0,
     ...(raw.subscription_type ? { plan: raw.subscription_type } : {}),
     windows,
@@ -97,7 +96,7 @@ export function planUsage(fresh = false): Promise<PlanUsage> {
     .catch((err): PlanUsage => {
       // Keep showing the last known figures if there are any; say why there are none otherwise.
       if (latest) return latest;
-      return { available: false, windows: [], fetchedAt: Date.now(), error: err instanceof Error ? err.message : String(err) };
+      return { provider: 'claude', available: false, windows: [], fetchedAt: Date.now(), error: err instanceof Error ? err.message : String(err) };
     })
     .finally(() => (pending = undefined));
   return pending;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { folderPlace } from '../lib/format';
+  import { folderPlace, providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
 
   // Where the chat works, written like a shell prompt (spaceship and its
@@ -21,7 +21,7 @@
 
   const title = $derived(
     app.running
-      ? `Works in ${folderPlace(folder, app.home)}. The folder can be changed once Claude has finished.`
+      ? `Works in ${folderPlace(folder, app.home)}. The folder can be changed once ${providerName(app.provider)} has finished.`
       : `Works in ${folderPlace(folder, app.home)}${branch ? `, on git branch ${branch}${dirty ? ', with uncommitted changes' : ''}` : ''}${gone ? ' (deleted)' : ''}. Click to change the folder.`,
   );
 </script>

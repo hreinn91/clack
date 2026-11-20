@@ -68,7 +68,7 @@
   </details>
 {:else if item.kind === 'tool'}
   <ToolCard {item} />
-{:else}
+{:else if item.kind === 'notice'}
   <p class="notice" class:error={item.level === 'error'} role={item.level === 'error' ? 'alert' : undefined}>
     {item.text}
   </p>

@@ -135,9 +135,9 @@
 <div class="scroll">
   <div class="panel">
     <div class="intro">
-      <h2>Where should Claude work?</h2>
+      <h2>Where should the agent work?</h2>
       <p>
-        Every chat works in a folder of its own, and Claude can only touch the files inside it. Start with a fresh folder,
+        Every chat works in a folder of its own, and the agent (Claude or Codex, picked by the model in the chat) can only change the files inside it. Start with a fresh folder,
         carry on in one you already have{app.outsideFolders ? ', or pick one anywhere on this computer' : ''}.
       </p>
     </div>

@@ -15,6 +15,8 @@ import type {
   LogPage,
   Me,
   ModelOption,
+  Provider,
+  ProviderModels,
   PermissionDecision,
   PermissionMode,
   PermissionRequest,
@@ -35,6 +37,7 @@ export type Route =
   | { name: 'debug'; tab: 'log' }
   | { name: 'data' }
   | { name: 'theme' }
+  | { name: 'help' }
   | { name: 'usage' }
   | { name: 'tools' };
 
@@ -45,6 +48,7 @@ function parseRoute(): Route {
   if (/^#\/debug(\/log)?$/.test(location.hash)) return { name: 'debug', tab: 'log' };
   if (location.hash === '#/data') return { name: 'data' };
   if (location.hash === '#/theme') return { name: 'theme' };
+  if (location.hash === '#/help') return { name: 'help' };
   if (location.hash === '#/usage') return { name: 'usage' };
   if (location.hash === '#/tools') return { name: 'tools' };
   // The new-chat page, opened on picking a folder anywhere on this computer.
@@ -97,8 +101,8 @@ class AppState {
   avatar = $state<number | undefined>();
   /** Typed into the search field: narrows the chats and folders in the sidebar. */
   search = $state('');
-  /** How much of the Claude plan's limits is used. Null until the first answer. */
-  usage = $state<PlanUsage | null>(null);
+  /** How much of each provider's plan limits is used, by provider. Empty until the first answer. */
+  usages = $state<Partial<Record<Provider, PlanUsage>>>({});
   /** True while the figures are being asked for. */
   usageLoading = $state(false);
   /** Whether the quick switcher (Cmd+K) is showing. */
@@ -107,6 +111,8 @@ class AppState {
   dialog = $state<{ kind: 'rename' | 'move' | 'delete'; session: SessionSummary } | null>(null);
   /** A folder in the chat tree waiting for its deletion to be confirmed: its name, as the tree has it. */
   deletingFolder = $state<string | null>(null);
+  /** A switch of the open chat to the other agent, waiting to be confirmed. */
+  switching = $state<{ provider: Provider; model: string | null; effort: EffortLevel | null } | null>(null);
   /** An added outside folder waiting for its removal from clack to be confirmed. */
   removingRoot = $state<FolderRoot | null>(null);
   /** The sidebar's width in pixels, and whether it is tucked away to leave the page more room. */
@@ -116,8 +122,8 @@ class AppState {
   folders = $state<FolderInfo[]>([]);
   /** Folders outside data/sessions that were added, each with its own tree. */
   roots = $state<FolderRoot[]>([]);
-  /** Empty until Claude Code has been asked which models this account can use. */
-  models = $state<ModelOption[]>([]);
+  /** Each provider's models and whether it can be used. Empty until the server has been asked. */
+  providers = $state<ProviderModels[]>([]);
   connected = $state(false);
   route = $state<Route>(parseRoute());
 
@@ -185,6 +191,7 @@ class AppState {
     if (!meta) return undefined;
     return {
       sessionId: id,
+      provider: meta.provider,
       title: meta.title ?? 'New chat',
       folder: meta.folder,
       lastModified: Date.now(),
@@ -194,14 +201,29 @@ class AppState {
     };
   }
 
+  /** Every model of every provider that can be used, Claude's first. */
+  get models(): ModelOption[] {
+    return this.providers.flatMap((p) => (p.available ? p.models : []));
+  }
+
+  /** The provider of the open chat; Claude where there is none. */
+  get provider(): Provider {
+    return this.meta?.provider ?? 'claude';
+  }
+
+  /** The open chat's provider's plan usage, which is what the ring by the send button shows. */
+  get usage(): PlanUsage | null {
+    return this.usages[this.provider] ?? null;
+  }
+
   get modelName(): string {
     const meta = this.meta;
     if (meta?.activeModel) return authorName(meta.activeModel, meta.effort);
-    const picked = meta?.model ? this.models.find((m) => m.value === meta.model)?.label : undefined;
+    const picked = meta?.model ? this.models.find((m) => m.provider === meta.provider && m.value === meta.model)?.label : undefined;
     if (picked) return withEffort(picked, meta?.effort);
     let last: string | undefined;
     for (const item of this.items) if (item.model) last = item.model;
-    return authorName(last, meta?.effort);
+    return authorName(last, meta?.effort, this.provider);
   }
 
   /** Sets the sidebar's width, kept within its limits. Resizing a hidden sidebar brings it back. */
@@ -305,7 +327,8 @@ class AppState {
   async loadUsage(fresh = false): Promise<void> {
     this.usageLoading = true;
     try {
-      this.usage = await api<PlanUsage>(`/api/usage${fresh ? '?fresh=1' : ''}`);
+      const all = await api<PlanUsage[]>(`/api/usage${fresh ? '?fresh=1' : ''}`);
+      for (const usage of all) this.usages[usage.provider] = usage;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) this.authed = false;
     } finally {
@@ -313,10 +336,11 @@ class AppState {
     }
   }
 
-  async loadModels(): Promise<void> {
-    if (this.models.length) return;
+  /** Each agent's models and sign-in. `fresh` looks at the sign-ins again, after signing in on the server. */
+  async loadModels(fresh = false): Promise<void> {
+    if (this.providers.length && !fresh) return;
     try {
-      this.models = await api<ModelOption[]>('/api/models');
+      this.providers = await api<ProviderModels[]>(`/api/models${fresh ? '?fresh=1' : ''}`);
     } catch (err) {
       // The chat works without the list; the pickers just stay hidden.
       if (err instanceof ApiError && err.status === 401) this.authed = false;
@@ -337,8 +361,8 @@ class AppState {
   }
 
   /** What Claude Code can use in a folder ('' for everywhere). Throws, so the page can say what went wrong. */
-  async loadCapabilities(folder: string, fresh = false): Promise<Capabilities> {
-    const query = new URLSearchParams({ ...(folder ? { folder } : {}), ...(fresh ? { fresh: '1' } : {}) }).toString();
+  async loadCapabilities(folder: string, fresh = false, provider: Provider = 'claude'): Promise<Capabilities> {
+    const query = new URLSearchParams({ provider, ...(folder ? { folder } : {}), ...(fresh ? { fresh: '1' } : {}) }).toString();
     return api<Capabilities>(`/api/capabilities${query ? `?${query}` : ''}`);
   }
 
@@ -535,8 +559,9 @@ class AppState {
     }
   }
 
-  configure(model: string | null, effort: EffortLevel | null): void {
-    if (this.sessionId) this.#send({ t: 'config', sessionId: this.sessionId, model, effort });
+  /** A model and effort for the open chat; a model of the other provider moves the chat over to it. */
+  configure(model: string | null, effort: EffortLevel | null, provider: Provider = this.provider): void {
+    if (this.sessionId) this.#send({ t: 'config', sessionId: this.sessionId, provider, model, effort });
   }
 
   /** Saves a file in the open chat's folder so it can be attached to a message. */
@@ -647,7 +672,8 @@ class AppState {
 
   #wake(): void {
     // Back after a while: the limits may have moved, or started over, in the meantime.
-    if (this.authed && this.usage && Date.now() - this.usage.fetchedAt > 5 * 60_000) void this.loadUsage();
+    const stale = Object.values(this.usages).some((usage) => usage && Date.now() - usage.fetchedAt > 5 * 60_000);
+    if (this.authed && stale) void this.loadUsage();
     if (!this.authed || this.#ws) return;
     clearTimeout(this.#retryTimer);
     this.#retryMs = 500;
@@ -708,7 +734,7 @@ class AppState {
         void this.loadTerminals();
         break;
       case 'usage':
-        this.usage = msg.usage;
+        this.usages[msg.usage.provider] = msg.usage;
         break;
       case 'log':
         // The initial load and the live feed can overlap by an entry or two.
@@ -726,10 +752,14 @@ class AppState {
 
   #apply(event: SessionEvent): void {
     switch (event.t) {
-      case 'item':
+      case 'item': {
         if (event.replaces) this.drafts = this.drafts.filter((d) => d.id !== event.replaces);
-        this.items.push(event.item);
+        // An item that replaces itself is one that changed (a todo list moving on): it keeps its place.
+        const at = event.replaces === event.item.id ? this.items.findIndex((item) => item.id === event.item.id) : -1;
+        if (at === -1) this.items.push(event.item);
+        else this.items[at] = event.item;
         break;
+      }
       case 'draft':
         this.drafts.push(event.draft);
         break;

@@ -58,6 +58,15 @@ export const config = {
   outsideFolders: !/^(0|off|false|no)$/i.test(process.env.CLACK_OUTSIDE_FOLDERS?.trim() ?? ''),
   /** Model and effort choices, remembered per chat. */
   prefsFile: join(dataDir, 'preferences.json'),
+  /** Codex as a second agent: on, off, or auto (on when the codex command is installed). */
+  codex: ((): 'auto' | 'on' | 'off' => {
+    const value = process.env.CLACK_CODEX?.trim().toLowerCase() ?? '';
+    if (/^(0|off|false|no)$/.test(value)) return 'off';
+    if (/^(1|on|true|yes)$/.test(value)) return 'on';
+    return 'auto';
+  })(),
+  /** The codex command; found on the PATH unless CLACK_CODEX_PATH says where. */
+  codexPath: process.env.CLACK_CODEX_PATH?.trim() || 'codex',
   /** Optional path to a `claude` binary; the SDK's bundled one is used otherwise. */
   claudePath: process.env.CLACK_CLAUDE_PATH || undefined,
   /** An idle Claude Code process is shut down after this long; the chat resumes on the next prompt. */

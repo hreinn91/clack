@@ -1,6 +1,8 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
+  import { providerName } from '../lib/format';
   import Avatar from './Avatar.svelte';
+  import ProviderMark from './ProviderMark.svelte';
 
   let menuOpen = $state(false);
   let picker = $state<HTMLInputElement>();
@@ -32,7 +34,12 @@
   // Home is the conversation list: it goes back to the most recent chat.
   const home = $derived(app.sessions[0] ? `#/s/${app.sessions[0].sessionId}` : '#/new');
   const section = $derived(
-    app.route.name === 'debug' || app.route.name === 'data' || app.route.name === 'theme' || app.route.name === 'usage' || app.route.name === 'tools'
+    app.route.name === 'debug' ||
+      app.route.name === 'data' ||
+      app.route.name === 'theme' ||
+      app.route.name === 'usage' ||
+      app.route.name === 'tools' ||
+      app.route.name === 'help'
       ? app.route.name
       : 'home',
   );
@@ -117,6 +124,17 @@
     Theme
   </a>
 
+  <a class="item" class:active={section === 'help'} href="#/help" aria-current={section === 'help' ? 'page' : undefined}>
+    <span class="tile">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10" cy="10" r="7.5" />
+        <path d="M7.7 7.6a2.4 2.4 0 0 1 4.6.9c0 1.6-2.3 2-2.3 3.5" />
+        <circle cx="10" cy="14.6" r=".9" fill="currentColor" stroke="none" />
+      </svg>
+    </span>
+    Help
+  </a>
+
   <span class="spacer"></span>
 
   <a class="add" href="#/new" aria-label="New chat" title="New chat">
@@ -147,6 +165,17 @@
             <span class="status"><span class="dot" class:off={!app.connected}></span>{app.connected ? 'Connected' : 'Reconnecting…'}</span>
           </div>
         </div>
+        {#if app.providers.length}
+          <ul class="agents" aria-label="Agents">
+            {#each app.providers as p (p.provider)}
+              <li class={p.provider}>
+                <ProviderMark provider={p.provider} size={13} />
+                <span>{providerName(p.provider)}</span>
+                <em>{p.available ? (p.plan ? p.plan.charAt(0).toUpperCase() + p.plan.slice(1) : 'Signed in') : 'Not available'}</em>
+              </li>
+            {/each}
+          </ul>
+        {/if}
         <button role="menuitem" disabled={saving} onclick={() => picker?.click()}>
           {saving ? 'Saving picture…' : app.avatar !== undefined ? 'Change picture…' : 'Upload a picture…'}
         </button>
@@ -325,6 +354,38 @@
 
   .menu > button:disabled {
     color: var(--muted);
+  }
+
+  .agents {
+    display: grid;
+    gap: 4px;
+    margin: 0 0 8px;
+    padding: 0 16px 8px;
+    border-bottom: 1px solid var(--border);
+    list-style: none;
+    font-size: 13px;
+  }
+
+  .agents li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--provider-claude);
+  }
+
+  .agents li.codex {
+    color: var(--provider-codex);
+  }
+
+  .agents span {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .agents em {
+    margin-left: auto;
+    color: var(--muted);
+    font-style: normal;
   }
 
   .menu hr {

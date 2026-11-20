@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { folderPath } from '../lib/format';
+  import { folderPath, providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import Modal from './Modal.svelte';
 
@@ -39,7 +39,7 @@
         id: session.sessionId,
         kind: 'chat',
         label: session.title,
-        hint: session.archived ? `${session.folder} · archived` : session.folder,
+        hint: `${session.folder} · ${providerName(session.provider)}${session.archived ? ' · archived' : ''}`,
         run: () => go(`#/s/${session.sessionId}`),
       });
     }

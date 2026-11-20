@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ModelOption } from '../../shared/protocol.ts';
-import { config } from './config.ts';
+import type { ModelOption } from '../../../../shared/protocol.ts';
+import { config } from '../../config.ts';
 
 let cached: Promise<ModelOption[]> | undefined;
 
@@ -22,6 +22,7 @@ async function fetchModels(): Promise<ModelOption[]> {
   try {
     const models = await q.supportedModels();
     return models.map((model) => ({
+      provider: 'claude' as const,
       value: model.value,
       label: model.displayName,
       description: model.description,

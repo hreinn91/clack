@@ -34,6 +34,10 @@
       case 'Agent':
       case 'Task':
         return str(f.description);
+      case 'Patch': {
+        const changes = Array.isArray(f.changes) ? (f.changes as { path?: string }[]) : [];
+        return changes.length === 1 ? relativeTo(str(changes[0]!.path), cwd) : `${changes.length} files`;
+      }
       case 'TodoWrite':
         return Array.isArray(f.todos) ? `${f.todos.length} items` : '';
       default:

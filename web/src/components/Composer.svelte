@@ -1,29 +1,45 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import type { EffortLevel, PermissionMode, Upload } from '../../../shared/protocol';
-  import { fileSize, isImagePath, splitAttachments, withAttachments } from '../lib/format';
+  import type { EffortLevel, PermissionMode, Provider, Upload } from '../../../shared/protocol';
+  import { fileSize, isImagePath, providerMaker, providerName, splitAttachments, withAttachments } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import FolderPrompt from './FolderPrompt.svelte';
   import Picker from './Picker.svelte';
+  import CodeText from './CodeText.svelte';
+  import ProviderMark from './ProviderMark.svelte';
   import UsageMeter from './UsageMeter.svelte';
 
-  const MODES: { value: PermissionMode; label: string; description: string }[] = [
-    { value: 'default', label: 'Ask before changes', description: 'Claude asks before it edits files or runs commands.' },
-    { value: 'acceptEdits', label: 'Accept file edits', description: 'File edits go ahead; commands still ask.' },
-    { value: 'plan', label: 'Plan only', description: 'Claude looks and plans, and changes nothing.' },
-    { value: 'auto', label: 'Auto', description: 'A safety check approves routine actions; Claude asks about the rest.' },
-  ];
+  // The same four modes on both agents, which carry them out in their own way.
+  const MODES: Record<Provider, { value: PermissionMode; label: string; description: string }[]> = {
+    claude: [
+      { value: 'default', label: 'Ask before changes', description: 'Claude asks before it edits files or runs commands.' },
+      { value: 'acceptEdits', label: 'Accept file edits', description: 'File edits go ahead; commands still ask.' },
+      { value: 'plan', label: 'Plan only', description: 'Claude looks and plans, and changes nothing.' },
+      { value: 'auto', label: 'Auto', description: 'A safety check approves routine actions; Claude asks about the rest.' },
+    ],
+    codex: [
+      { value: 'default', label: 'Ask before changes', description: 'Codex can look around; it asks before changing anything or going online.' },
+      { value: 'acceptEdits', label: 'Accept file edits', description: 'Codex edits and runs commands inside the folder; it asks before going outside it or online.' },
+      { value: 'plan', label: 'Plan only', description: 'Codex looks and plans, and changes nothing.' },
+      { value: 'auto', label: 'Auto', description: "Codex's reviewer approves routine requests; Codex asks you about the rest." },
+    ],
+  };
 
-  const EFFORT_LABELS: Record<EffortLevel, string> = {
+  const EFFORT_LABELS: Record<string, string> = {
+    none: 'No extra effort',
+    minimal: 'Minimal effort',
     low: 'Low effort',
     medium: 'Medium effort',
     high: 'High effort',
     xhigh: 'Extra high effort',
     max: 'Max effort',
+    ultra: 'Ultra effort',
   };
 
-  // The list's own "default" row stands for "let Claude Code choose".
+  // Claude's list has its own "default" row, which stands for "let Claude Code choose".
   const DEFAULT_MODEL = 'default';
+  /** One picker lists both agents' models, so each choice says whose it is. */
+  const key = (provider: Provider, model: string) => `${provider}:${model}`;
 
   let text = $state('');
   let area = $state<HTMLTextAreaElement>();
@@ -33,21 +49,60 @@
   // A chat whose folder was deleted cannot go on until it has one again; the chat says how.
   const ready = $derived(app.connected && app.meta !== null && !app.meta.folderMissing);
 
-  const modelValue = $derived(app.meta?.model ?? DEFAULT_MODEL);
+  /** The models of the chat's provider. */
+  const models = $derived(app.models.filter((m) => m.provider === app.provider));
+  /** No model chosen means the agent's default: Claude's list has a row for that, Codex's names its default model. */
+  const modelValue = $derived(
+    app.meta?.model ?? (app.provider === 'claude' ? DEFAULT_MODEL : (models.find((m) => m.isDefault)?.value ?? models[0]?.value ?? '')),
+  );
+  const chosenModel = $derived(models.find((m) => m.value === modelValue));
   /** Effort levels the chosen model accepts; empty when it has none to choose from. */
-  const efforts = $derived(app.models.find((m) => m.value === modelValue)?.efforts ?? []);
+  const efforts = $derived(chosenModel?.efforts ?? []);
   const effortOptions = $derived([
-    { value: '', label: 'Default effort', description: 'Whatever Claude Code picks for this model.' },
-    ...efforts.map((effort) => ({ value: effort, label: EFFORT_LABELS[effort] })),
+    {
+      value: '',
+      label: 'Default effort',
+      description:
+        app.provider === 'codex'
+          ? `What Codex uses for this model${chosenModel?.defaultEffort ? ` (${EFFORT_LABELS[chosenModel.defaultEffort]?.toLowerCase() ?? chosenModel.defaultEffort})` : ''}.`
+          : 'Whatever Claude Code picks for this model.',
+    },
+    ...efforts.map((effort) => ({ value: effort, label: EFFORT_LABELS[effort] ?? effort })),
   ]);
+  /**
+   * Every agent's models in one list, grouped by agent. One that cannot be used says why instead.
+   * A model of the other agent moves the chat over to it.
+   */
+  const modelOptions = $derived(
+    app.providers.flatMap((p) => {
+      const group = `${providerName(p.provider)} · ${providerMaker(p.provider)}`;
+      const groupNote = p.plan ? p.plan.charAt(0).toUpperCase() + p.plan.slice(1) : undefined;
+      if (!p.available || !p.models.length) {
+        return [{ value: key(p.provider, ''), label: 'Not available', description: p.reason ?? 'It is not set up on this server.', group, groupNote, disabled: true }];
+      }
+      return p.models.map((m) => ({ value: key(p.provider, m.value), label: m.label, description: m.description, group, groupNote }));
+    }),
+  );
+  /** The chat's agent is set up on the server but not signed in (or not there at all): said above the message box. */
+  const unavailable = $derived(app.providers.find((p) => p.provider === app.provider && !p.available));
   // Switching mid-turn would change the model under a reply that is still being written.
   const canConfigure = $derived(ready && !app.running);
 
-  function pickModel(value: string) {
-    const next = app.models.find((m) => m.value === value);
+  function pickModel(choice: string) {
+    const cut = choice.indexOf(':');
+    const provider = choice.slice(0, cut) as Provider;
+    const value = choice.slice(cut + 1);
+    const next = app.models.find((m) => m.provider === provider && m.value === value);
     const effort = app.meta?.effort ?? null;
     // Keep the effort only if the new model has that level.
-    app.configure(value === DEFAULT_MODEL ? null : value, effort && next?.efforts.includes(effort) ? effort : null);
+    const keep = effort && next?.efforts.includes(effort) ? effort : null;
+    const model = provider === 'claude' && value === DEFAULT_MODEL ? null : value;
+    if (provider !== app.provider && app.items.length) {
+      // The chat has started on the other agent: switching it over is asked first.
+      app.switching = { provider, model, effort: keep };
+      return;
+    }
+    app.configure(model, keep, provider);
   }
 
   function pickEffort(value: string) {
@@ -218,6 +273,12 @@
         {/if}
       </ul>
     {/if}
+    {#if unavailable}
+      <p class="unavailable" role="status">
+        <CodeText text={unavailable.reason ?? `${providerName(app.provider)} cannot be used on this server.`} />
+        <a href="#/help">How to sign in</a>{app.providers.some((p) => p.available) ? ', or pick the other agent in the model menu.' : '.'}
+      </p>
+    {/if}
     <textarea
       bind:this={area}
       bind:value={text}
@@ -230,7 +291,7 @@
     ></textarea>
     <div class="row">
       <div class="pickers">
-        <button class="add" aria-label="Attach files" title="Attach files: pictures, documents, anything Claude should look at" disabled={!ready} onclick={() => picker?.click()}>
+        <button class="add" aria-label="Attach files" title={`Attach files: pictures, documents, anything ${providerName(app.provider)} should look at`} disabled={!ready} onclick={() => picker?.click()}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
             <path d="M8 3v10M3 8h10" />
           </svg>
@@ -251,12 +312,15 @@
         <Picker
           label="Permission mode"
           value={app.meta?.mode ?? 'auto'}
-          options={MODES}
+          options={MODES[app.provider]}
           disabled={!ready}
           onpick={(value) => app.setMode(value as PermissionMode)}
         />
-        {#if app.models.length}
-          <Picker label="Model" value={modelValue} options={app.models} disabled={!canConfigure} onpick={pickModel} />
+        {#if modelOptions.length}
+          <Picker label="Model" value={key(app.provider, modelValue)} options={modelOptions} disabled={!canConfigure} onpick={pickModel}>
+            {#snippet lead()}<ProviderMark provider={app.provider} size={13} />{/snippet}
+            {#snippet groupLead(group)}<ProviderMark provider={group.startsWith('Codex') ? 'codex' : 'claude'} size={12} />{/snippet}
+          </Picker>
           {#if efforts.length}
             <Picker label="Effort" value={app.meta?.effort ?? ''} options={effortOptions} disabled={!canConfigure} onpick={pickEffort} />
           {/if}
@@ -283,6 +347,19 @@
 </div>
 
 <style>
+  .unavailable {
+    margin: 0 0 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--danger-soft);
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  .unavailable a {
+    color: var(--link);
+  }
+
   .composer {
     padding: 4px 20px calc(18px + env(safe-area-inset-bottom));
   }

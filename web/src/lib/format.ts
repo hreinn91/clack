@@ -20,6 +20,9 @@ export function ago(timestamp: number): string {
 }
 
 const EFFORT_NAMES: Record<EffortLevel, string> = {
+  none: 'No Effort',
+  minimal: 'Minimal',
+  ultra: 'Ultra',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
@@ -27,8 +30,19 @@ const EFFORT_NAMES: Record<EffortLevel, string> = {
   max: 'Max',
 };
 
-/** "claude-fable-5-2" becomes "Fable 5.2"; dates, regions and other decoration are dropped. */
+const titleCase = (word: string) => (word ? word[0]!.toUpperCase() + word.slice(1) : word);
+
+/**
+ * "claude-fable-5-2" becomes "Fable 5.2", and "gpt-6.2-sol" "GPT-6.2 Sol";
+ * dates, regions and other decoration are dropped.
+ */
 export function modelName(id: string): string {
+  // OpenAI's names: a family and version, then words.
+  if (/^(gpt-|o\d|codex-)/i.test(id)) {
+    const parts = id.toLowerCase().split('-').filter(Boolean);
+    const head = parts[0] === 'gpt' && parts[1] && /^\d/.test(parts[1]) ? `GPT-${parts.splice(0, 2)[1]}` : titleCase(parts.shift() ?? id);
+    return [head, ...parts.map(titleCase)].join(' ');
+  }
   const core = id
     .toLowerCase()
     .replace(/[[@].*$/, '')
@@ -44,12 +58,12 @@ export function modelName(id: string): string {
 }
 
 /** The name a reply is shown under: the model, then the effort it ran at, such as "Fable 5.2 High". */
-export function authorName(model: string | undefined, effort: EffortLevel | null | undefined): string {
-  return withEffort(model ? modelName(model) : 'Claude', effort);
+export function authorName(model: string | undefined, effort: EffortLevel | null | undefined, provider: 'claude' | 'codex' = 'claude'): string {
+  return withEffort(model ? modelName(model) : provider === 'codex' ? 'Codex' : 'Claude', effort);
 }
 
 export function withEffort(name: string, effort: EffortLevel | null | undefined): string {
-  return effort ? `${name} ${EFFORT_NAMES[effort]}` : name;
+  return effort ? `${name} ${EFFORT_NAMES[effort] ?? titleCase(effort)}` : name;
 }
 
 export function clock(timestamp: number): string {
@@ -208,4 +222,14 @@ export function within(folder: string, dir: string): boolean {
 export function folderPlace(folder: string, home = ''): string {
   if (!isOutside(folder)) return `data/sessions/${folder}`;
   return home && within(folder, home) ? `~${folder.slice(home.length)}` : folder;
+}
+
+/** The agent's name as people know it. */
+export function providerName(provider: 'claude' | 'codex' | undefined): string {
+  return provider === 'codex' ? 'Codex' : 'Claude';
+}
+
+/** Who makes the agent, for where the two are listed side by side. */
+export function providerMaker(provider: 'claude' | 'codex'): string {
+  return provider === 'codex' ? 'OpenAI' : 'Anthropic';
 }

@@ -33,6 +33,9 @@
   --code: #c01343;
   --danger: #c01343;
   --danger-soft: #fbe9ee;
+  /* Each agent's own colour, for its sign wherever chats, usage or tools are told apart by agent. */
+  --provider-claude: #c2571a;
+  --provider-codex: #1f7a8c;
   --add: #e3f5ea;
   --del: #fbe9ee;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 10%);

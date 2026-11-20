@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Item } from '../../../shared/protocol';
-  import { authorName, dayKey, dayLabel, folderPlace, isOutside } from '../lib/format';
+  import type { Item, Provider } from '../../../shared/protocol';
+  import { authorName, dayKey, dayLabel, folderPlace, isOutside, modelName, providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
   import ActionMenu from './ActionMenu.svelte';
   import ChangesPanel from './ChangesPanel.svelte';
@@ -12,6 +12,8 @@
   import Markdown from './Markdown.svelte';
   import Message from './Message.svelte';
   import PermissionCard from './PermissionCard.svelte';
+  import ProviderChip from './ProviderChip.svelte';
+  import ProviderMark from './ProviderMark.svelte';
 
   let { onmenu }: { onmenu: () => void } = $props();
 
@@ -86,8 +88,10 @@
 
   type Group = {
     id: string;
-    kind: 'person' | 'model' | 'system';
+    kind: 'person' | 'model' | 'system' | 'switch';
     name: string;
+    /** For the agent's turns: which agent wrote them. A chat that switched has turns from both. */
+    provider: Provider;
     ts?: number;
     /** Set on the first group of a calendar day. */
     day?: string;
@@ -102,14 +106,17 @@
   const groups = $derived.by(() => {
     const out: Group[] = [];
     let day = '';
+    // The agent before the first switch, if the chat ever switched; otherwise the one it runs on.
+    let provider: Provider = app.items.find((item) => item.kind === 'divider')?.from ?? app.provider;
     for (const item of app.items) {
-      const kind = item.kind === 'user' ? 'person' : item.kind === 'notice' ? 'system' : 'model';
+      if (item.kind === 'divider') provider = item.to;
+      const kind = item.kind === 'user' ? 'person' : item.kind === 'notice' ? 'system' : item.kind === 'divider' ? 'switch' : 'model';
       const last = out.at(-1);
-      if (last?.kind === kind) {
+      if (last?.kind === kind && kind !== 'switch') {
         last.items.push(item);
         continue;
       }
-      const group: Group = { id: item.id, kind, name: '', ts: item.ts, items: [item] };
+      const group: Group = { id: item.id, kind, name: '', provider, ts: item.ts, items: [item] };
       if (item.ts && dayKey(item.ts) !== day) {
         day = dayKey(item.ts);
         group.day = dayLabel(item.ts);
@@ -122,7 +129,9 @@
       else {
         // A subagent's entries carry no signature, so this is always the model the person is talking to.
         const signed = group.items.find((item) => item.model);
-        group.name = signed ? authorName(signed.model, group.items.find((item) => item.effort)?.effort) : 'Claude';
+        group.name = signed
+          ? authorName(signed.model, group.items.find((item) => item.effort)?.effort, group.provider)
+          : providerName(group.provider);
       }
     }
     return out;
@@ -181,6 +190,7 @@
     <h1><button class="title" title="Rename this chat" onclick={startRename}>{title}</button></h1>
   {/if}
   <p class="where">
+    {#if summary}<ProviderChip />{/if}
     {#if summary && !gone}<ContextPanel /><TasksPanel /><ChangesPanel />{/if}
     {#if gone}
       <span class="archived" title="This chat's folder was deleted">Folder deleted</span>
@@ -220,7 +230,7 @@
       <div class="empty">
         <Avatar kind="folder" label={folderName} size={48} />
         <h2>{folderName}</h2>
-        <p>This is the very beginning of this chat. Claude will work in <code>{folderShown}</code>. What would you like to do?</p>
+        <p>This is the very beginning of this chat. {providerName(app.provider)} will work in <code>{folderShown}</code>. What would you like to do?</p>
       </div>
     {/if}
 
@@ -228,19 +238,35 @@
       {#if group.day}
         <div class="day" role="separator"><span>{group.day}</span></div>
       {/if}
-      <Message kind={group.kind} name={group.name} ts={group.ts}>
-        {#each group.items as item (item.id)}
-          <Entry {item} />
-        {/each}
-        {#if live && group.kind === 'model' && index === groups.length - 1}
-          {@render liveOutput()}
+      {#if group.kind === 'switch'}
+        {@const item = group.items[0]}
+        {#if item?.kind === 'divider'}
+          <div class="switch" role="separator">
+            <span>
+              <ProviderMark provider={item.from} size={13} />
+              {providerName(item.from)}{item.fromModel ? ` · ${modelName(item.fromModel)}` : ''}
+              <span class="arrow" aria-label="to">→</span>
+              <ProviderMark provider={item.to} size={13} />
+              {providerName(item.to)}{item.toModel ? ` · ${modelName(item.toModel)}` : ''}
+            </span>
+            <small>The chat moved to {providerName(item.to)} here, and it was handed the conversation so far.</small>
+          </div>
         {/if}
-      </Message>
+      {:else}
+        <Message kind={group.kind} name={group.name} ts={group.ts} provider={group.provider}>
+          {#each group.items as item (item.id)}
+            <Entry {item} />
+          {/each}
+          {#if live && group.kind === 'model' && index === groups.length - 1}
+            {@render liveOutput()}
+          {/if}
+        </Message>
+      {/if}
     {/each}
 
     {#if live && !lastIsModel}
       <!-- Nothing finished to take a name from yet, so this is signed with who is expected to answer. -->
-      <Message kind="model" name={app.modelName}>
+      <Message kind="model" name={app.modelName} provider={app.provider}>
         {@render liveOutput()}
       </Message>
     {/if}
@@ -375,6 +401,46 @@
     flex-direction: column;
     justify-content: flex-end;
     padding: 16px 0 8px;
+  }
+
+  /* Where the chat moved to the other agent: a line across, with both agents on it. */
+  .switch {
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    margin: 14px 0 8px;
+    position: relative;
+  }
+
+  .switch::before {
+    content: '';
+    position: absolute;
+    top: 14px;
+    left: 0;
+    right: 0;
+    border-top: 1px dashed var(--border-strong);
+  }
+
+  .switch > span {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--bg);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .switch .arrow {
+    color: var(--muted);
+  }
+
+  .switch small {
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .day {

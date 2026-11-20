@@ -2,9 +2,9 @@ import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerStatus, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { Capabilities } from '../../shared/protocol.ts';
-import { config } from './config.ts';
-import { existingFolder } from './folders.ts';
+import type { Capabilities } from '../../../../shared/protocol.ts';
+import { config } from '../../config.ts';
+import { existingFolder } from '../../folders.ts';
 
 // What Claude Code can use: asked of a short-lived Claude Code process started
 // in the folder, without sending it anything, so it costs no tokens. MCP
@@ -93,6 +93,7 @@ async function measure(cwd: string): Promise<Capabilities> {
     const commandNamed = new Map(commands.map((command) => [command.name, command]));
 
     return {
+      provider: 'claude',
       folder: null,
       measuredAt: Date.now(),
       mcpServers: servers

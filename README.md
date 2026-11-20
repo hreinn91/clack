@@ -22,6 +22,9 @@ browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  
   Folders can be nested, and the sidebar shows them as a tree
 - Or pick any folder on the computer, such as a project you already have; it gets a tree of
   its own in the sidebar
+- Runs on Claude Code (Anthropic) or Codex (OpenAI): pick either agent's models per chat,
+  and move a chat to the other agent halfway through. Usage, context and tools are shown
+  per agent
 - Lists the chats started through clack and resumes them
 - Pick the model and effort level per chat
 - Attach pictures and documents to a message for Claude to look at
@@ -40,7 +43,9 @@ browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  
 
 ## Setup
 
-Requires Node 24 or newer and a Claude subscription.
+Requires Node 24 or newer, and at least one of the two agents signed in: Claude Code (a
+Claude subscription or an Anthropic API key) or Codex (a ChatGPT plan, Plus or higher, or an
+OpenAI API key). Either one is enough; with both, chats can use either.
 
 ```bash
 npm install
@@ -51,6 +56,16 @@ Sign in to Claude Code once on the server computer, if you have not already:
 ```bash
 claude auth login
 ```
+
+To have Codex too, install the `codex` command
+([Codex CLI](https://github.com/openai/codex), for example `brew install codex` or
+`npm install -g @openai/codex`) and sign it in once:
+
+```bash
+codex login
+```
+
+clack finds `codex` on the `PATH` when it starts; see [Claude and Codex](#claude-and-codex).
 
 Build the UI and start the server:
 
@@ -97,14 +112,25 @@ adding its plugin folder to `~/.docker/config.json`.)
    the token it prints in `.env` as `CLAUDE_CODE_OAUTH_TOKEN`, then `docker compose up -d`
    again.
 
-3. **Open** `http://localhost:4317`, or the host's address from another device.
+3. **Sign Codex in**, if you want it as well. The image includes it; the device code
+   sign-in prints a link and a code to enter there:
+
+   ```bash
+   docker compose exec clack codex login --device-auth
+   ```
+
+   Device code sign-in has to be allowed in your ChatGPT account's security settings.
+   Or put an OpenAI API key in `.env` as `CODEX_API_KEY`. Leave both out and clack simply
+   runs without Codex.
+
+4. **Open** `http://localhost:4317`, or the host's address from another device.
 
 ### What lives where
 
 | In the container | On the host | Holds |
 | --- | --- | --- |
 | `/data` | `./data`, or `CLACK_DATA_PATH` | The data directory: chat folders, logs, remembered settings |
-| `/home/node` | the Docker volume `clack-home` | Claude Code's sign-in and the conversations themselves, and clack's access token |
+| `/home/node` | the Docker volume `clack-home` | Claude Code's and Codex's sign-ins and the conversations themselves (`~/.claude`, `~/.codex`), and clack's access token |
 
 The data directory is an ordinary folder on the host, so you can look at and edit what
 the chats produce there. The conversations are not in it: Claude Code keeps them in its
@@ -137,7 +163,8 @@ After changing `.env`, run `docker compose up -d` again. After updating the code
 ### What is in the image
 
 Debian with Node, the app, Claude Code (the copy that comes with the Agent SDK, on the
-`PATH` as `claude`), and a few tools a shell is expected to have: `git`, `curl`,
+`PATH` as `claude`), Codex (`codex`, at the version clack's Codex support was written
+for; `CODEX_VERSION` is a build argument), and a few tools a shell is expected to have: `git`, `curl`,
 `python3`, `ripgrep`, `jq`, `nano`, `less` and an SSH client. Terminals on the
 [data page](#data-page) are shells inside the container, running `bash` as the app's
 user, so they see the container's files and tools, not the host's. To have more tools,
@@ -210,7 +237,8 @@ The window has four parts:
   your plan's [limits](#usage), **Tools** lists the [MCP servers, skills and
   tools](#tools-and-skills) Claude can use, **Activity** opens
   the [activity log](#activity-log), **Data** opens the [data page](#data-page),
-  **Theme** opens the [themes](#themes), **+** starts a chat, and your picture at the bottom shows whether the browser is connected
+  **Theme** opens the [themes](#themes), **Help** says whether each agent is signed in on the server, how to sign in,
+  the keyboard shortcuts and a few tips, **+** starts a chat, and your picture at the bottom shows whether the browser is connected
   and holds **Sign out**. Its menu also has **Upload a picture…**: any PNG, JPEG, WebP or
   other picture the browser can open, cropped to the middle square and shrunk to 256
   pixels before it is sent. It then stands in for your initials everywhere, including next
@@ -309,6 +337,7 @@ data/
     clack-2026-11-14.jsonl  the activity log, one file per day
   preferences.json        the model and effort chosen for each chat
   roots.json              the folders outside data/sessions that were added
+  chats.json              chats that ran on Codex or switched agent: which conversations each is made of
   avatar.webp             your picture, if you uploaded one (or avatar.png / avatar.jpg)
 ```
 
@@ -361,17 +390,70 @@ of models comes from Claude Code, so it matches what your Claude account can use
 next message, is remembered for that chat, and becomes the starting point for new chats.
 "Default" leaves the choice to Claude Code.
 
+## Claude and Codex
+
+clack runs each chat on one of two agents: **Claude Code** (Anthropic, through the Claude
+Agent SDK) or **Codex** (OpenAI, through `codex app-server`).
+
+- **Starting them.** Nothing needs starting by hand. clack starts Claude Code for a chat when
+  it is needed, as before, and starts `codex app-server` itself the first time it needs
+  Codex (when the model list is first asked for). One app-server serves every Codex chat,
+  and it is started again if it stops. All Codex needs is the `codex` command installed
+  and signed in (`codex login`).
+- **One agent is enough.** With only one signed in, clack works on that one: new chats
+  start on it, and the other is listed in the model menu with why it cannot be used (such as
+  "not signed in"). The message box says so too if a chat's agent is not signed in. Sign in
+  on the server and press **Check again** on the **Help** page; there is no need to restart.
+
+- **Picking.** The model menu in the message box lists both agents' models, grouped
+  under **Claude · Anthropic** and **Codex · OpenAI**, each headed by the plan it is
+  signed in with. An agent that cannot be used is listed with the reason (such as "not
+  signed in"). Before the first message any model can be picked: the chat starts on its
+  agent. New chats start on the agent and model you used last.
+- **Telling them apart.** The agent's sign is everywhere a chat shows up: Claude's spark,
+  or a `>_` prompt for Codex, each in its own colour. It is on the replies, before each
+  chat's name in the sidebar, in the quick switcher, the activity log, and on the
+  **agent chip** first under the chat's title. The chip opens a card with the agent, the
+  plan, the model and mode, the plan's limits, and a button to switch.
+- **Switching mid-chat.** Pick the other agent's model in the menu (or **Switch to …** on
+  the chip) and confirm. The chat keeps everything said so far. A line across the
+  conversation marks where it moved, and with your next message the new agent is handed
+  the conversation as text: the latest turns in full, older ones shortened, one line per
+  tool call. It starts with an empty memory otherwise: what the other agent changed in
+  the folder is on disk, but what it read or ran is not in the new agent's memory. You
+  can switch back and forth; each agent keeps its own part of the chat, and rename,
+  archive and delete apply to all of it.
+- **Modes.** The four modes mean the same on both agents and are carried out by each in
+  its own way. For Codex: **Ask before changes** runs in Codex's read-only sandbox and asks
+  before changing anything or going online; **Accept file edits** lets Codex write and
+  run commands inside the folder and asks before going outside it or online; **Plan
+  only** uses Codex's plan mode; **Auto** has Codex's own reviewer answer its approvals,
+  and only what it would refuse is asked.
+- **What differs.** For Codex, "Always allow" on a permission card reads **Allow for this
+  chat**: it lasts while the chat runs, not for good. Codex's context card shows how full
+  the window is and how it splits into input, cached input, replies and thinking, but not
+  the breakdown by category that Claude Code gives. Codex has no subagent list or slash
+  commands of its own, so those sections stay empty for it. When an MCP server asks for
+  details (Codex passes those requests on), the card shows a small form.
+- **Conversations started elsewhere.** As with Claude Code, chats you had with the
+  `codex` command in a folder clack knows show up in the sidebar and can be carried on.
+
 ## Usage
 
-**Usage** in the rail shows how much of your Claude plan's limits is used: the current
+**Usage** in the rail shows how much of each agent's plan limits is used, one section per
+agent with its own sign, plan and time of the last reading. For Claude: the current
 five-hour session, the week, and any limits that apply to one model, each with the time
 it starts over. These limits cover everything you do with Claude, on any device, not
 only what goes through clack. Extra pay-as-you-go usage is listed too when it is
 switched on. With an API key or a cloud provider there are no plan limits, and the page
 says so.
 
-In a chat, the small ring beside the send button shows the limit that is closest to
-running out. It is blue while there is plenty left, turns amber as it runs low and red
+For Codex: the windows your ChatGPT plan has (five hours and a week on Plus), with when
+each starts over, and prepaid credits when there are any. These cover everything you do
+with Codex: the Codex app, the `codex` command, editors and clack.
+
+In a chat, the small ring beside the send button shows the limit of that chat's agent that
+is closest to running out; its card says whose figures they are. It is blue while there is plenty left, turns amber as it runs low and red
 near the end. Clicking it lists every limit, and how full the model's context window is
 in that chat (known once a turn has finished there).
 
@@ -414,7 +496,10 @@ then shows what it can still read.
 
 ## Tools and skills
 
-**Tools** in the rail lists what Claude can use in your chats:
+**Tools** in the rail lists what an agent can use in your chats. With Codex set up, a
+**Claude | Codex** switch at the top picks whose: each has its own MCP servers (Codex's
+are in `~/.codex/config.toml`, added with `codex mcp add`), skills and built-in tools. For
+Claude:
 
 - **MCP servers**, with whether each is connected (or needs signing in, or failed),
   where it is set up (yours, a folder's `.mcp.json`, a claude.ai connector, a plugin),
@@ -558,7 +643,9 @@ claude --resume <session-id>
 
 Copy `.env.example` to `.env` to change the port, the data directory, the access token,
 the idle timeout, the name your messages are shown under, or to turn terminals off.
-Everything has a default.
+`CLACK_CODEX` turns Codex on or off (by default it is on when `codex` is installed), and
+`CLACK_CODEX_PATH` points at a `codex` command that is not on the `PATH`. Everything has a
+default.
 
 ## Development
 
@@ -572,6 +659,16 @@ This runs the server with auto-restart and Vite with hot reload. Open the Vite U
 ```bash
 npm run check
 ```
+
+clack's Codex support talks to `codex app-server` with a hand-written subset of its
+protocol (`server/src/agents/codex/protocol.ts`). To compare it with the installed
+Codex's own types, generate them into `server/codex-types` (not checked in):
+
+```bash
+npm run codex:types --workspace server
+```
+
+`npm test` runs the server's tests (the Codex item mapping and the handover between agents).
 
 ## Layout
 
@@ -620,6 +717,13 @@ Anyone who can sign in can make Claude Code run commands on the server computer 
   server checks the file tools itself before that happens and refuses any path outside
   the chat's folder. Claude Code's own files for that folder (its memory, saved tool
   output) stay reachable, as they are in the other modes.
+
+For Codex, the folder limit is Codex's own sandbox (Seatbelt on macOS, bubblewrap on
+Linux): a turn may write only in the chat's folder, and the network is off unless Codex
+asks and you allow it. Reading is not limited to the folder: Codex's sandbox does not
+offer that. In Docker, where bubblewrap often cannot run, clack checks at the first use;
+if Codex's sandbox does not work there, the container itself is the sandbox and Codex is
+not held to the folder inside it.
 
 ### What it does not cover
 

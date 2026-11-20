@@ -1,9 +1,10 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { ContextDetail } from '../../../shared/protocol';
-  import { ago, tokens } from '../lib/format';
+  import { ago, providerName, tokens } from '../lib/format';
   import { placeBelow } from '../lib/popover';
   import { app } from '../lib/state.svelte';
+  import ProviderMark from './ProviderMark.svelte';
   import UsageRing from './UsageRing.svelte';
 
   // The context chip beside a chat's folder, and the breakdown it opens: how
@@ -132,7 +133,7 @@
     style:width={`${place.width}px`}
   >
     <header>
-      <h2>Context window</h2>
+      <h2>Context window <span class="whose"><ProviderMark provider={app.provider} size={12} /> {providerName(app.provider)}</span></h2>
       <button class="refresh" class:spin={loading} aria-label="Measure again" title="Measure again" disabled={loading} onclick={measure}>
         <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M16 10a6 6 0 1 1-1.8-4.3M16.5 3.5v3h-3" />
@@ -152,7 +153,12 @@
           <p class="sub">{tokens(detail.tokens)} of {tokens(detail.max)} tokens</p>
         </div>
       </div>
-      {#if detail.autoCompactAt}
+      {#if detail.provider === 'codex'}
+        <p class="note">
+          Codex reports how much of the window the last reply used, not what it is made of. When the window fills up, Codex
+          compacts the conversation on its own.
+        </p>
+      {:else if detail.autoCompactAt}
         <p class="note">
           Claude Code compacts the conversation on its own at {tokens(detail.autoCompactAt)}
           ({Math.round((detail.autoCompactAt / detail.max) * 100)}%), {tokens(Math.max(0, detail.autoCompactAt - detail.tokens))} from now.
@@ -275,16 +281,29 @@
           {detail.model} · measuring again…
         {:else}
           {@const when = ago(detail.measuredAt)}
-          {detail.model} · measured {when === 'now' ? 'just now' : `${when} ago`}
+          {providerName(detail.provider)} · {detail.model} · measured {when === 'now' ? 'just now' : `${when} ago`}
         {/if}
       </p>
     {:else if loading}
-      <p class="wait"><span class="spinner"></span> Measuring… The first time, Claude Code has to start for this chat.</p>
+      <p class="wait">
+        <span class="spinner"></span>
+        {app.provider === 'codex' ? 'Measuring…' : 'Measuring… The first time, Claude Code has to start for this chat.'}
+      </p>
     {/if}
   </div>
 {/if}
 
 <style>
+  .whose {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
   .chip {
     display: inline-flex;
     align-items: center;

@@ -37,7 +37,7 @@ FROM node:24-bookworm-slim
 # expect to find. Add to this list to have more tools in the container.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        bash ca-certificates curl git jq less nano openssh-client procps python3 ripgrep socat tini unzip \
+        bash bubblewrap ca-certificates curl git jq less nano openssh-client procps python3 ripgrep socat tini unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # A server ssh has never seen is trusted the first time and remembered in
@@ -53,17 +53,25 @@ COPY --from=build /app/shared shared
 COPY --from=build /app/server server
 COPY --from=build /app/web/dist web/dist
 
-# Claude Code comes with the Agent SDK. Putting it on the PATH lets you sign in
-# from the container, and use it in the terminal page.
+# Codex, the second agent: the codex command and its app-server, at the version
+# clack's Codex support was written against (see server/src/agents/codex).
+ARG CODEX_VERSION=0.170.0
+RUN npm install -g "@openai/codex@${CODEX_VERSION}" && npm cache clean --force
+
+# Claude Code comes with the Agent SDK. Putting it, and codex, on the PATH as
+# the app's own user lets you sign in from the container, and use them in the
+# terminal page.
 COPY docker/claude.sh /usr/local/bin/claude
+COPY docker/codex.sh /usr/local/bin/codex
 COPY docker/entrypoint.sh /usr/local/bin/clack-entrypoint
-RUN chmod 755 /usr/local/bin/claude /usr/local/bin/clack-entrypoint && claude --version
+RUN chmod 755 /usr/local/bin/claude /usr/local/bin/codex /usr/local/bin/clack-entrypoint && claude --version && codex --version
 
 # /data is the data directory: chat folders, logs, remembered settings. It is
 # meant to be a folder of the host.
-# /home/node holds what Claude Code keeps about itself (its sign-in and the
-# conversations) and clack's access token, so it has to outlive the container.
-RUN mkdir -p /data /home/node/.claude /home/node/.config/clack \
+# /home/node holds what Claude Code and Codex keep about themselves (their
+# sign-ins and conversations) and clack's access token, so it has to outlive
+# the container.
+RUN mkdir -p /data /home/node/.claude /home/node/.codex /home/node/.config/clack \
     && chown -R node:node /data /home/node
 VOLUME ["/data", "/home/node"]
 

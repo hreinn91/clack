@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { Provider } from '../../../shared/protocol';
   import { clock, fullDate } from '../lib/format';
   import Avatar from './Avatar.svelte';
 
@@ -8,12 +9,13 @@
     kind,
     name,
     ts,
+    provider = 'claude',
     children,
-  }: { kind: 'person' | 'model' | 'system'; name: string; ts?: number; children: Snippet } = $props();
+  }: { kind: 'person' | 'model' | 'system'; name: string; ts?: number; provider?: Provider; children: Snippet } = $props();
 </script>
 
 <article class="message">
-  <Avatar {kind} label={name} />
+  <Avatar {kind} label={name} {provider} />
   <div class="main">
     <header>
       <span class="name">{name}</span>

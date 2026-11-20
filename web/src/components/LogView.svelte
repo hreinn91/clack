@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { LogEntry, LogKind } from '../../../shared/protocol';
+  import { providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import ProviderMark from './ProviderMark.svelte';
 
   // Tool calls and their results are one thing to a reader, so they share a filter.
   const GROUPS: { key: string; label: string; kinds: LogKind[] }[] = [
@@ -94,6 +96,9 @@
           <time datetime={new Date(entry.ts).toISOString()}>{time(entry)}</time>
           <span class={`kind ${entry.kind}`}>{KIND_LABELS[entry.kind]}</span>
           <a href={`#/s/${entry.sessionId}`} title="Open this chat">{entry.folder}</a>
+          {#if entry.provider}
+            <span class="agent {entry.provider}" title={`Ran on ${providerName(entry.provider)}`}><ProviderMark provider={entry.provider} size={11} />{providerName(entry.provider)}</span>
+          {/if}
           {#if entry.model}<span class="model">{entry.model}</span>{/if}
         </div>
         <pre>{long && !expanded[entry.id] ? `${entry.text.slice(0, LONG)}…` : entry.text}</pre>
@@ -117,6 +122,19 @@
 </footer>
 
 <style>
+  .agent {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--provider-claude);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .agent.codex {
+    color: var(--provider-codex);
+  }
+
   .tools {
     display: flex;
     flex-wrap: wrap;

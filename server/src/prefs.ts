@@ -1,9 +1,9 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { EffortLevel } from '../../shared/protocol.ts';
+import type { EffortLevel, Provider } from '../../shared/protocol.ts';
 import { config } from './config.ts';
 
-/** A chat's model and effort. null means "whatever Claude Code defaults to". */
-export type Prefs = { model: string | null; effort: EffortLevel | null };
+/** A chat's provider, model and effort. null means "whatever the agent defaults to". Older records have no provider: Claude. */
+export type Prefs = { provider?: Provider; model: string | null; effort: EffortLevel | null };
 
 type Stored = {
   defaults: Prefs;
