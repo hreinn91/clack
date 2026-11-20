@@ -112,7 +112,7 @@
       if (item.kind === 'divider') provider = item.to;
       const kind = item.kind === 'user' ? 'person' : item.kind === 'notice' ? 'system' : item.kind === 'divider' ? 'switch' : 'model';
       const last = out.at(-1);
-      if (last?.kind === kind && kind !== 'switch') {
+      if (last?.kind === kind && kind !== 'switch' && kind !== 'person') {
         last.items.push(item);
         continue;
       }
@@ -140,6 +140,16 @@
   // Streaming text, the working indicator and questions for the person all belong to Claude's current turn.
   const live = $derived(app.running || app.drafts.length > 0 || app.pending.length > 0);
   const lastIsModel = $derived(groups.at(-1)?.kind === 'model');
+
+  const streamingText = $derived(app.drafts.filter(draft => draft.kind === 'text').map(draft => draft.text).join('\n\n'));
+
+  function messageText(group: Group, streaming: string): string {
+    const parts = group.items.flatMap(item =>
+      item.kind === 'user' || (item.kind === 'text' && !item.parent) ? [item.text] : []
+    );
+    if (streaming) parts.push(streaming);
+    return parts.join('\n\n');
+  }
 
   function onscroll() {
     if (!scroller) return;
@@ -187,7 +197,7 @@
       }}
     />
   {:else}
-    <h1><button class="title" title="Rename this chat" onclick={startRename}>{title}</button></h1>
+    <h1><button class="title" title={`${title} · Rename chat`} onclick={startRename}>{title}</button></h1>
   {/if}
   <p class="where">
     {#if summary}<ProviderChip />{/if}
@@ -254,7 +264,8 @@
           </div>
         {/if}
       {:else}
-        <Message kind={group.kind} name={group.name} ts={group.ts} provider={group.provider}>
+        <Message kind={group.kind} name={group.name} ts={group.ts} provider={group.provider}
+          copyText={messageText(group, group.kind === 'model' && index === groups.length - 1 ? streamingText : '')}>
           {#each group.items as item (item.id)}
             <Entry {item} />
           {/each}
@@ -267,7 +278,7 @@
 
     {#if live && !lastIsModel}
       <!-- Nothing finished to take a name from yet, so this is signed with who is expected to answer. -->
-      <Message kind="model" name={app.modelName} provider={app.provider}>
+      <Message kind="model" name={app.modelName} provider={app.provider} copyText={streamingText}>
         {@render liveOutput()}
       </Message>
     {/if}
@@ -298,12 +309,12 @@
 
 <style>
   h1 {
-    flex: 0 1 auto;
+    flex: 1 1 0;
     min-width: 0;
   }
 
   .where {
-    flex: 1 1 0;
+    flex: 0 1 auto;
     min-width: 0;
     margin: 0;
     overflow: hidden;
@@ -514,10 +525,13 @@
     color: var(--danger);
   }
 
-  /* Let the metadata shrink while keeping Changes within reach. */
-  @media (max-width: 520px) {
+  /* Give the title and its controls one row, and the chat metadata a second. */
+  @media (max-width: 600px) {
+    .pane-bar { flex-wrap: wrap; row-gap: 3px; }
+
     .where {
-      flex: 0 1 auto;
+      order: 1;
+      flex: 1 0 100%;
     }
 
     .where .archived {

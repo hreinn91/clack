@@ -7,6 +7,7 @@ export type Prefs = { provider?: Provider; model: string | null; effort: EffortL
 
 type Stored = {
   defaults: Prefs;
+  byProvider: Partial<Record<Provider, Prefs>>;
   sessions: Record<string, Prefs>;
   /** Chats that were moved: the name of the folder under data/sessions each one works in now. */
   folders: Record<string, string>;
@@ -19,21 +20,28 @@ const NONE: Prefs = { model: null, effort: null };
 function load(): Stored {
   try {
     const parsed = JSON.parse(readFileSync(config.prefsFile, 'utf8')) as Partial<Stored>;
-    return { defaults: parsed.defaults ?? NONE, sessions: parsed.sessions ?? {}, folders: parsed.folders ?? {} };
+    const defaults = parsed.defaults ?? NONE;
+    return {
+      defaults,
+      byProvider: parsed.byProvider ?? { [defaults.provider ?? 'claude']: defaults },
+      sessions: parsed.sessions ?? {},
+      folders: parsed.folders ?? {},
+    };
   } catch {
-    return { defaults: NONE, sessions: {}, folders: {} };
+    return { defaults: NONE, byProvider: {}, sessions: {}, folders: {} };
   }
 }
 
 const stored = load();
 
-export function prefsFor(sessionId: string): Prefs {
-  return stored.sessions[sessionId] ?? NONE;
+export function prefsFor(sessionId: string): Prefs | undefined {
+  return stored.sessions[sessionId];
 }
 
 /** What a brand-new chat starts with: the most recent choice made in any chat. */
-export function defaultPrefs(): Prefs {
-  return stored.defaults;
+export function defaultPrefs(provider?: Provider): Prefs {
+  if (!provider) return stored.defaults;
+  return stored.byProvider[provider] ?? { ...NONE, provider };
 }
 
 function write(): void {
@@ -41,8 +49,14 @@ function write(): void {
 }
 
 export function savePrefs(sessionId: string, prefs: Prefs): void {
-  stored.sessions[sessionId] = prefs;
   stored.defaults = prefs;
+  stored.byProvider[prefs.provider ?? 'claude'] = prefs;
+  saveSessionPrefs(sessionId, prefs);
+}
+
+/** Inheriting preferences belongs to this chat and leaves the latest explicit choice intact. */
+export function saveSessionPrefs(sessionId: string, prefs: Prefs): void {
+  stored.sessions[sessionId] = prefs;
   write();
 }
 

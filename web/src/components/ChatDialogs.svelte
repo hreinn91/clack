@@ -213,9 +213,9 @@
     <form onsubmit={forget}>
       <h2>Remove this folder from clack?</h2>
       <p>
-        <code>{root.label}</code> leaves the sidebar, and new chats can no longer work in it. Nothing in the folder is
-        deleted or changed.
+        <code>{root.label}</code> leaves the sidebar, and new chats can no longer work in it.
       </p>
+      <p class="reassurance"><strong>Nothing in the folder is deleted or changed.</strong></p>
       {#if rootChats}
         <p>
           {rootChats === 1 ? 'Its 1 chat leaves' : `Its ${rootChats} chats leave`} the sidebar too. Add the folder again
@@ -291,6 +291,13 @@
     border-radius: 6px;
     background: var(--bg);
     font-size: 16px;
+  }
+
+  .reassurance {
+    padding: 8px 12px;
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    background: var(--accent-soft);
   }
 
   .error {

@@ -32,6 +32,7 @@ function stored(thread: Thread, archived: boolean): StoredSession {
     ...(thread.gitInfo?.branch ? { gitBranch: thread.gitInfo.branch } : {}),
     lastModified: thread.updatedAt * 1000,
     archived,
+    ...(thread.reasoningEffort ? { effort: thread.reasoningEffort } : {}),
     ...(thread.model ? { model: thread.model } : {}),
   };
 }

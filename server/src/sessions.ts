@@ -30,7 +30,7 @@ import { config } from './config.ts';
 import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideRoots, isFolder, recreateFolder, removeFolder, removeRoot } from './folders.ts';
 import { gitFileDiff, gitStatus } from './git.ts';
 import { log } from './log.ts';
-import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs } from './prefs.ts';
+import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs, saveSessionPrefs } from './prefs.ts';
 import type { Prefs } from './prefs.ts';
 
 export type Listener = (msg: ServerMessage) => void;
@@ -417,6 +417,9 @@ export class LiveSession implements RunHost {
     if (!id) return;
     const last = this.segments.at(-1);
     if (last && last.provider === this.run.provider && last.sessionId === id) return;
+    if (!prefsFor(this.sessionId)) {
+      saveSessionPrefs(this.sessionId, { provider: this.provider, model: this.model, effort: this.effort });
+    }
     this.segments.push({ provider: this.run.provider, sessionId: id, startedAt: Date.now(), ...(this.model ? { model: this.model } : {}) });
     saveSegments(this.sessionId, this.segments, { cwd: this.cwd, ...(this.title ? { title: this.title } : {}) });
     // A conversation started after a switch would be titled by its first message, the handover: it gets the chat's title.
@@ -569,9 +572,7 @@ const loading = new Map<string, Promise<LiveSession>>();
 /** A new chat in a folder, on the agent it should start on (see startingProvider). */
 export function createSession(cwd: string, provider?: Provider): LiveSession {
   const chatId = randomUUID();
-  const defaults = defaultPrefs();
-  // The last choice carries over when it was for this agent; otherwise the agent picks its own default.
-  const prefs = !provider || provider === (defaults.provider ?? 'claude') ? defaults : { provider, model: null, effort: null };
+  const prefs = defaultPrefs(provider);
   const session = new LiveSession({ chatId, cwd, prefs, segments: [] });
   live.set(chatId, session);
   return session;
@@ -609,7 +610,8 @@ async function loadFromDisk(chatId: string): Promise<LiveSession> {
   const last = segments.at(-1)!;
   const record = recordOf(chatId);
   // The provider's own record says where the chat works; clack's record stands in where the provider's list misses it.
-  const info = (await backend(last.provider).find(last.sessionId).catch(() => undefined)) ??
+  const providerSession = await backend(last.provider).find(last.sessionId).catch(() => undefined);
+  const info = providerSession ??
     (record?.cwd ? { cwd: record.cwd, title: record.title } : undefined);
   // Sessions from anywhere else on this computer are treated as if they did not exist.
   if (!info?.cwd || !insideRoots(info.cwd)) throw new Error('Session not found');
@@ -643,7 +645,11 @@ async function loadFromDisk(chatId: string): Promise<LiveSession> {
   const session = new LiveSession({
     chatId,
     cwd: currentCwd(chatId, info.cwd),
-    prefs: prefsFor(chatId),
+    prefs: prefsFor(chatId) ?? {
+      provider: last.provider,
+      model: last.provider === 'codex' ? providerSession?.model ?? last.model ?? null : null,
+      effort: providerSession?.effort ?? null,
+    },
     segments: [...segments],
     items,
     title: record?.title ?? info.title,

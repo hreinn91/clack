@@ -36,6 +36,7 @@ export type StoredSession = {
   lastModified: number;
   archived: boolean;
   model?: string;
+  effort?: EffortLevel;
 };
 
 /** What a run reports to, and asks of, the chat it belongs to. */
