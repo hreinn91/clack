@@ -98,7 +98,7 @@
                 {#if !app.providers.length}
                   Checking…
                 {:else if !s}
-                  Not installed on the server, or turned off
+                  Turned off on this server (<code>CLACK_CODEX=off</code>)
                 {:else if s.available}
                   <span class="dot good"></span> Signed in{s.plan ? ` · ${titled(s.plan)}` : ''}
                 {:else}

@@ -1,13 +1,17 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { accessSync, constants } from 'node:fs';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { config } from '../../config.ts';
 import type { RequestId } from './protocol.ts';
 
 // One `codex app-server` process serves every Codex chat: it speaks JSON-RPC
 // over stdin and stdout, one message per line, and runs many threads at once.
-// It is started when first needed and started again after it goes away.
+// It is started when first needed (never when clack starts) and started again
+// after it goes away. Where the codex command is not installed it is never
+// started at all: Codex then counts as not available, like one not signed in.
 // Notifications and requests that name a thread go to whoever listens for that
 // thread (a chat's CodexRun); the rest are emitted on `events`.
 
@@ -23,6 +27,32 @@ export type ThreadListener = {
 type Waiting = { resolve: (value: unknown) => void; reject: (err: Error) => void; method: string };
 
 const REQUEST_TIMEOUT_MS = 120_000;
+
+const INSTALL_KEEP_MS = 30_000;
+let install: { at: number; found: boolean } | undefined;
+
+/**
+ * Whether the codex command is there: CLACK_CODEX_PATH, or `codex` on the
+ * PATH. Looked up again after a while, or when `fresh`, so installing it while
+ * clack runs is noticed without a restart.
+ */
+export function codexInstalled(fresh = false): boolean {
+  if (!fresh && install && Date.now() - install.at < INSTALL_KEEP_MS) return install.found;
+  const command = config.codexPath;
+  const candidates = isAbsolute(command) ? [command] : (process.env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, command));
+  const found = candidates.some((path) => {
+    try {
+      accessSync(path, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  install = { at: Date.now(), found };
+  return found;
+}
+
+export const NOT_INSTALLED = 'Codex is not installed on the server. Install the `codex` command, sign in with `codex login`, then check again.';
 
 export class CodexError extends Error {
   code: number | undefined;
@@ -48,6 +78,8 @@ class AppServer {
   /** Starts the process if it is not running, and waits for the handshake. */
   private start(): Promise<void> {
     if (this.ready) return this.ready;
+    // Nothing to start: said at once, and not counted as a failed start.
+    if (!codexInstalled()) return Promise.reject(new CodexError(NOT_INSTALLED));
     this.stopped = false;
     this.ready = new Promise<void>((resolve, reject) => {
       const args = ['app-server', '--listen', 'stdio://'];
@@ -63,6 +95,8 @@ class AppServer {
       }
       this.child = child;
       this.errors = [];
+      // Writing to a process that has just died fails on the pipe; that is dealt with as the process going away.
+      child.stdin.on('error', () => undefined);
       child.stderr.setEncoding('utf8');
       child.stderr.on('data', (chunk: string) => {
         this.errors.push(...chunk.split('\n').filter(Boolean));

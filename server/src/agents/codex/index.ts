@@ -1,11 +1,9 @@
-import { accessSync, constants } from 'node:fs';
-import { delimiter, isAbsolute, join } from 'node:path';
 import type { Capabilities, Item } from '../../../../shared/protocol.ts';
 import { config } from '../../config.ts';
 import { existingFolder } from '../../folders.ts';
 import type { AgentBackend, StoredSession } from '../types.ts';
 import { stripHandover } from '../handover.ts';
-import { appServer } from './appserver.ts';
+import { appServer, codexInstalled, NOT_INSTALLED } from './appserver.ts';
 import { itemsFromTurns } from './items.ts';
 import type { McpServerStatus, SkillMetadata, Thread, Turn } from './protocol.ts';
 import { CodexRun } from './run.ts';
@@ -16,24 +14,6 @@ const BUILT_IN_TOOLS = ['apply_patch', 'shell', 'update_plan', 'view_image', 'we
 
 /** The sources whose threads clack lists: Codex left alone lists only the interactive ones. */
 const SOURCES = ['cli', 'vscode', 'exec', 'appServer'];
-
-/** Whether the codex command can be found, looked up once. */
-let installed: boolean | undefined;
-
-function findCodex(): boolean {
-  if (installed !== undefined) return installed;
-  const command = config.codexPath;
-  const candidates = isAbsolute(command) ? [command] : (process.env.PATH ?? '').split(delimiter).map((dir) => join(dir, command));
-  installed = candidates.some((path) => {
-    try {
-      accessSync(path, constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  return installed;
-}
 
 /** A thread's title: the name it was given, or the start of its first message. */
 function titleOf(thread: Thread): string | undefined {
@@ -71,13 +51,11 @@ export const codex: AgentBackend = {
   provider: 'codex',
   name: 'Codex',
 
-  enabled() {
-    if (config.codex === 'off') return false;
-    if (config.codex === 'on') return true;
-    return findCodex();
-  },
+  // Listed unless switched off: a server without the codex command shows Codex as not available, saying why.
+  enabled: () => config.codex !== 'off',
 
-  async status() {
+  async status(fresh) {
+    if (!codexInstalled(fresh)) return { available: false, reason: NOT_INSTALLED };
     await probeSandbox();
     return codexStatus();
   },
@@ -131,6 +109,7 @@ export const codex: AgentBackend = {
 
   async list() {
     const found: StoredSession[] = [];
+    if (!codexInstalled()) return found;
     for (const archived of [false, true]) {
       let cursor: string | null = null;
       for (let page = 0; page < 3; page++) {
@@ -150,6 +129,7 @@ export const codex: AgentBackend = {
   },
 
   async find(sessionId) {
+    if (!codexInstalled()) return undefined;
     try {
       const answer = await appServer.request<{ thread: Thread }>('thread/read', { threadId: sessionId, includeTurns: false });
       return stored(answer.thread, false);

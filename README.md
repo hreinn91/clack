@@ -65,7 +65,8 @@ To have Codex too, install the `codex` command
 codex login
 ```
 
-clack finds `codex` on the `PATH` when it starts; see [Claude and Codex](#claude-and-codex).
+clack finds `codex` on the `PATH`; without it, clack runs on Claude alone and lists Codex as
+not installed. See [Claude and Codex](#claude-and-codex).
 
 Build the UI and start the server:
 
@@ -399,7 +400,9 @@ Agent SDK) or **Codex** (OpenAI, through `codex app-server`).
   it is needed, as before, and starts `codex app-server` itself the first time it needs
   Codex (when the model list is first asked for). One app-server serves every Codex chat,
   and it is started again if it stops. All Codex needs is the `codex` command installed
-  and signed in (`codex login`).
+  and signed in (`codex login`). Without the command, clack still starts and runs as
+  usual: Codex is listed as not installed, the same way as one that is not signed in, and
+  clack never tries to start it. Install it and press **Check again** on the **Help** page.
 - **One agent is enough.** With only one signed in, clack works on that one: new chats
   start on it, and the other is listed in the model menu with why it cannot be used (such as
   "not signed in"). The message box says so too if a chat's agent is not signed in. Sign in
@@ -643,8 +646,9 @@ claude --resume <session-id>
 
 Copy `.env.example` to `.env` to change the port, the data directory, the access token,
 the idle timeout, the name your messages are shown under, or to turn terminals off.
-`CLACK_CODEX` turns Codex on or off (by default it is on when `codex` is installed), and
-`CLACK_CODEX_PATH` points at a `codex` command that is not on the `PATH`. Everything has a
+`CLACK_CODEX=off` leaves Codex out altogether (by default it is listed, and shows as not
+available until `codex` is installed and signed in), and `CLACK_CODEX_PATH` points at a
+`codex` command that is not on the `PATH`. Everything has a
 default.
 
 ## Development

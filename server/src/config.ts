@@ -58,7 +58,10 @@ export const config = {
   outsideFolders: !/^(0|off|false|no)$/i.test(process.env.CLACK_OUTSIDE_FOLDERS?.trim() ?? ''),
   /** Model and effort choices, remembered per chat. */
   prefsFile: join(dataDir, 'preferences.json'),
-  /** Codex as a second agent: on, off, or auto (on when the codex command is installed). */
+  /**
+   * Codex as a second agent. Listed unless off; where the codex command is not
+   * installed it shows as not available. (auto and on mean the same.)
+   */
   codex: ((): 'auto' | 'on' | 'off' => {
     const value = process.env.CLACK_CODEX?.trim().toLowerCase() ?? '';
     if (/^(0|off|false|no)$/.test(value)) return 'off';
