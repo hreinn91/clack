@@ -3,10 +3,24 @@
 
   const mac = /Mac|iPhone|iPad/.test(navigator.platform);
   // The field narrows whatever the sidebar is showing.
-  const hint = $derived(app.route.name === 'data' ? 'Filter files' : 'Search chats and folders');
+  const hint = $derived(app.changesOpen ? 'Filter changed files' : app.route.name === 'data' ? 'Filter files' : 'Search chats and folders');
+
+  const hidden = $derived(app.changesOpen ? app.changesListHidden : app.sidebarHidden);
+
+  function filter(text: string) {
+    if (app.changesOpen) {
+      app.changesFilter = text;
+      app.changesListHidden = false;
+    } else {
+      app.search = text;
+    }
+  }
 
   function onkeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') app.search = '';
+    if (event.key === 'Escape') {
+      if (app.changesOpen) app.changesFilter = '';
+      else app.search = '';
+    }
   }
 </script>
 
@@ -14,15 +28,15 @@
   <div class="nav">
     <button
       class="toggle"
-      aria-label={app.sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
-      aria-pressed={!app.sidebarHidden}
-      title={`${app.sidebarHidden ? 'Show' : 'Hide'} sidebar (${mac ? '⌘⇧D' : 'Ctrl+Shift+D'})`}
-      onclick={() => app.toggleSidebar()}
+      aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
+      aria-pressed={!hidden}
+      title={`${hidden ? 'Show' : 'Hide'} sidebar (${mac ? '⌘⇧D' : 'Ctrl+Shift+D'})`}
+      onclick={() => app.changesOpen ? (app.changesListHidden = !hidden) : app.toggleSidebar()}
     >
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
         <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" />
         <path d="M7.5 3.5v13" />
-        {#if !app.sidebarHidden}<path d="M3 5.5h4.5v9H3z" fill="currentColor" stroke="none" opacity="0.55" />{/if}
+        {#if !hidden}<path d="M3 5.5h4.5v9H3z" fill="currentColor" stroke="none" opacity="0.55" />{/if}
       </svg>
     </button>
     <button aria-label="Back" title="Back" onclick={() => history.back()}>
@@ -42,7 +56,8 @@
       <circle cx="9" cy="9" r="5.5" />
       <path d="M13.2 13.2 17 17" />
     </svg>
-    <input type="search" placeholder={hint} aria-label={hint} bind:value={app.search} {onkeydown} />
+    <input type="search" placeholder={hint} aria-label={hint}
+      bind:value={() => app.changesOpen ? app.changesFilter : app.search, filter} {onkeydown} />
     <button class="jump" title="Go to a chat or start one" aria-label="Open the quick switcher" onclick={() => (app.paletteOpen = true)}>
       {mac ? '⌘K' : 'Ctrl K'}
     </button>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Chat from './components/Chat.svelte';
+  import ChangesPane from './components/ChangesPane.svelte';
   import ChatDialogs from './components/ChatDialogs.svelte';
   import Data from './components/Data.svelte';
   import Debug from './components/Debug.svelte';
@@ -65,7 +66,8 @@
     // The same keys a chat app uses for these.
     if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && key === 'd') {
       event.preventDefault();
-      app.toggleSidebar();
+      if (app.changesOpen) app.changesListHidden = !app.changesListHidden;
+      else app.toggleSidebar();
     } else if (key === 'k' && !event.shiftKey && !event.altKey && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) {
       // Away from a Mac this is Ctrl+K, which a shell uses to delete to the end of the line: a terminal keeps it.
       if (!mac && (event.target as HTMLElement | null)?.closest?.('.xterm')) return;
@@ -102,12 +104,13 @@
     <!-- On a wide screen the rail and sidebar are columns of the shell; on a phone they slide in together. -->
     <div class="drawer" class:open={drawerOpen}>
       <Rail />
-      <div class="panel"><Sidebar /></div>
+      <div class="panel" class:away={app.changesOpen} inert={app.changesOpen}><Sidebar /></div>
     </div>
     <!-- The sidebar's right edge: drag it to resize, double-click to go back to the usual width. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <div
       class="grip"
+      class:away={app.changesOpen}
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize sidebar"
@@ -126,7 +129,7 @@
     {#if drawerOpen}
       <button class="backdrop" aria-label="Close menu" onclick={() => (drawerOpen = false)}></button>
     {/if}
-    <main>
+    <main class:away={app.changesOpen} inert={app.changesOpen}>
       {#if app.route.name === 'session'}
         <Chat onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'debug'}
@@ -145,6 +148,7 @@
         <NewChat onmenu={() => (drawerOpen = true)} />
       {/if}
     </main>
+    {#if app.changesOpen}<ChangesPane />{/if}
   </div>
   <ChatDialogs />
   {#if app.paletteOpen}<Palette />{/if}
@@ -217,6 +221,11 @@
     margin-left: -4px;
     cursor: col-resize;
     touch-action: none;
+  }
+
+  .away {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .grip::after {

@@ -482,8 +482,9 @@ and Claude usually replies to what it found.
 **Changes** beside those two appears when the chat's folder is in a git repository
 under `data/sessions`. With everything committed it reads **No changes** and does
 nothing. With uncommitted changes it shows how many files and how many lines were
-added and removed, the branch in the message box gets a `*`, and clicking it lists the
-files the way `git status` groups them: in conflict, staged, not staged and untracked.
+added and removed, and the branch in the message box gets a `*`. Clicking **Changes**
+opens a review with the changed files in the left sidebar, grouped by Git status
+(in conflict, staged, not staged and untracked).
 Each file has git's letter for the change (M modified, A added, D deleted, R renamed,
 U untracked) and its lines added and removed; a new file counts all its lines as
 added. The list also says how many commits are not pushed or still to pull. The counts
@@ -492,14 +493,17 @@ reply ends, each time the list is opened, and every 20 seconds while the chat is
 (so a commit made in a terminal shows up too). clack asks git with the settings that
 would run other programs (filesystem monitors, external diff tools) switched off.
 
-Click a file in the list to see its changes. The diff opens over the chat, with removed lines
-over added ones, each with its number in the old and the new file, and the code coloured as
-code in the theme's own code colours (its terminal palette, so a light theme with a dark
-terminal shows code dark). **Changes** shows a few lines around each change, with how many
-lines are left out between them (click that number for the whole file); **Whole file** shows
-all of it. A new file is shown as all added, a file in conflict as it is with git's markers
-picked out, and a binary file or one over 1 MB is said to be one. Esc closes the diff and
-leaves the list open, to pick the next file.
+Select a file to read its diff in the conversation area. On desktop, the first file opens
+automatically. Use the search field above the list to filter by path, or use the arrows in
+the diff to step through the files. On a phone, the list opens first. Tap a file to read
+its diff, then **Changed files** to return to the list.
+
+The diff shows removed and added lines with their old and new line numbers and the
+theme’s code colours. **Changes** shows a few lines around each edit. Click a gap or
+choose **Whole file** for more context. New files show every line as added. For files
+in conflict, the diff highlights Git’s conflict markers. Binary files and files over
+1 MB show a notice. **Back to chat** returns to the conversation with your draft
+and reading position preserved.
 
 The figures are read again after every turn in any chat, when Claude Code reports that
 a limit has moved, and with **Refresh** on the page. They come from a part of the Agent
@@ -634,11 +638,10 @@ text documents, or anything else Claude should look at. Dropping files on the me
 box or pasting a copied picture does the same. Each file is shown above the message
 until you send it, and can be taken off again with its ×.
 
-An attached file is saved in the chat's own folder, under `uploads/`, at most 25 MB
-each, and the message tells Claude where it is, so Claude reads it like any other file
-in the folder. A file with the same name as an earlier one gets a number added rather
-than replacing it. Taking a file off a message before sending does not delete it from
-`uploads/`. In the conversation, attached pictures are shown as pictures and other
+Attachments are saved under `data/uploads/<chat-id>/`, with a limit of 25 MB per file.
+The message includes the file's path for the agent to read. Duplicate names get a number
+added, and removing an attachment from a draft leaves the saved file on disk.
+In the conversation, attached pictures are shown as pictures and other
 files by name; clicking one opens it on the [data page](#data-page).
 
 ## Activity log
@@ -716,7 +719,7 @@ npm run codex:types --workspace server
 | `server/src/log.ts` | Writes the activity log and keeps the recent entries for the activity page |
 | `server/src/files.ts` | Lists folders and previews files for the data page, and keeps both inside the data directory |
 | `server/src/terminal.ts` | Runs the shells behind the data page's terminals |
-| `server/src/uploads.ts` | Saves files attached to a message into the chat's folder |
+| `server/src/uploads.ts` | Saves chat attachments under the data directory |
 | `server/src/capabilities.ts` | Asks Claude Code which MCP servers, skills, agents and tools it has, for the Tools page |
 | `server/src/git.ts` | Reads a chat's uncommitted changes from git, with lines added and removed per file |
 | `server/src/tasks.ts` | Keeps track of each chat's background tasks and agents from Claude Code's task events |
@@ -791,7 +794,7 @@ If people other than you will use the UI, treat it as giving them a shell on the
 - With the [SSH agent](#ssh-keys) passed in, anything running in the container can ask
   the agent to sign with every key loaded in it, for as long as clack runs. The keys
   themselves cannot be copied out.
-- Attached files can only land in the `uploads/` folder of a chat. Their names are
+- Attached files are stored under `data/uploads/`. Their names are
   reduced to plain file names first, and an existing file is never overwritten.
 
 ### Network and token

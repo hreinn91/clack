@@ -113,6 +113,10 @@ class AppState {
   dialog = $state<{ kind: 'rename' | 'move' | 'delete'; session: SessionSummary } | null>(null);
   /** A folder in the chat tree waiting for its deletion to be confirmed: its name, as the tree has it. */
   deletingFolder = $state<string | null>(null);
+  changesOpen = $state(false);
+  changesFilter = $state('');
+  changesListHidden = $state(false);
+
   /** A switch of the open chat to the other agent, waiting to be confirmed. */
   switching = $state<{ provider: Provider; model: string | null; effort: EffortLevel | null } | null>(null);
   /** An added outside folder waiting for its removal from clack to be confirmed. */
@@ -373,6 +377,16 @@ class AppState {
     return (await api<{ status: GitStatus | null }>(`/api/sessions/${sessionId}/git`)).status;
   }
 
+  openChanges(): void {
+    this.changesFilter = '';
+    this.changesListHidden = false;
+    this.changesOpen = true;
+  }
+
+  closeChanges(): void {
+    this.changesOpen = false;
+  }
+
   /** One changed file's diff. Throws, so the diff view can say what went wrong. */
   async loadGitDiff(sessionId: string, change: GitChange, whole: boolean): Promise<GitDiff> {
     const query = new URLSearchParams({
@@ -577,7 +591,19 @@ class AppState {
     if (this.sessionId) this.#send({ t: 'config', sessionId: this.sessionId, provider, model, effort });
   }
 
-  /** Saves a file in the open chat's folder so it can be attached to a message. */
+  uploadDataPath(path: string): string | undefined {
+    const prefix = `${this.dataDir}/uploads/`;
+    if (this.dataDir && path.startsWith(prefix)) return path.slice(this.dataDir.length + 1);
+  }
+
+  attachmentImage(path: string): string {
+    const dataPath = this.uploadDataPath(path);
+    return dataPath
+      ? `/api/files/image?path=${encodeURIComponent(dataPath)}`
+      : `/api/sessions/${this.sessionId}/image?path=${encodeURIComponent(path)}`;
+  }
+
+  /** Saves a file in the data directory so it can be attached to a message. */
   async upload(file: File): Promise<Upload | null> {
     const id = this.sessionId;
     if (!id) return null;
@@ -712,6 +738,8 @@ class AppState {
 
   #onRouteChange(): void {
     this.route = parseRoute();
+    // Another chat has other changes.
+    this.closeChanges();
     this.meta = null;
     this.items = [];
     this.drafts = [];

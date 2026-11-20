@@ -191,13 +191,14 @@
   {/if}
   <p class="where">
     {#if summary}<ProviderChip />{/if}
-    {#if summary && !gone}<ContextPanel /><TasksPanel /><ChangesPanel />{/if}
+    {#if summary && !gone}<ContextPanel /><TasksPanel />{/if}
     {#if gone}
       <span class="archived" title="This chat's folder was deleted">Folder deleted</span>
     {:else if summary?.archived}
       <span class="archived">Archived</span>
     {/if}
   </p>
+  {#if summary && !gone}<ChangesPanel />{/if}
   {#if !app.connected}<span class="offline">Reconnecting…</span>{/if}
   {#if summary}<ActionMenu label="More for this chat" {actions} />{/if}
 </header>
@@ -513,10 +514,10 @@
     color: var(--danger);
   }
 
-  /* Too narrow for everything: the title wins, and only the small context chip stays beside it. */
+  /* Let the metadata shrink while keeping Changes within reach. */
   @media (max-width: 520px) {
     .where {
-      flex: none;
+      flex: 0 1 auto;
     }
 
     .where .archived {

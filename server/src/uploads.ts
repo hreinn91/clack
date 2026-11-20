@@ -2,13 +2,10 @@ import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import type { Upload } from '../../shared/protocol.ts';
 import { FileError } from './files.ts';
-import { insideDir } from './folders.ts';
+import { config } from './config.ts';
 
 /** The largest file the UI may hand over, in bytes. */
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-
-/** Files attached to a chat are kept together in this folder inside the chat's own folder. */
-const UPLOAD_DIR = 'uploads';
 
 /** Reduces a name from someone's computer to a plain file name that is safe to create here. */
 function cleanName(name: unknown): string {
@@ -22,17 +19,15 @@ function cleanName(name: unknown): string {
   return cleaned || 'file';
 }
 
-/**
- * Saves a file the person attached to a chat into that chat's folder, where
- * Claude can read it like any other file there. An existing file is never
- * overwritten: the new one gets a number added to its name.
- */
-export async function saveUpload(cwd: string, name: unknown, data: Buffer): Promise<Upload> {
+/** Saves an attachment in the chat's upload directory, with a unique name. */
+export async function saveUpload(sessionId: string, name: unknown, data: Buffer): Promise<Upload> {
   if (data.length > MAX_UPLOAD_BYTES) throw new FileError(413, 'That file is too large to attach.');
-  const dir = join(cwd, UPLOAD_DIR);
-  await mkdir(dir, { recursive: true });
-  // A symlink called "uploads" must not send the file somewhere else.
-  if (!insideDir(await realpath(dir), cwd)) throw new FileError(403, 'The uploads folder of this chat cannot be used.');
+  const root = join(config.dataDir, 'uploads');
+  const dir = join(root, sessionId);
+  for (const folder of [root, dir]) {
+    await mkdir(folder, { recursive: true });
+    if (await realpath(folder) !== folder) throw new FileError(403, 'The uploads folder of this chat cannot be used.');
+  }
 
   const wanted = cleanName(name);
   const ext = extname(wanted);
@@ -42,7 +37,7 @@ export async function saveUpload(cwd: string, name: unknown, data: Buffer): Prom
     try {
       // 'wx' fails if the file is already there, instead of replacing it.
       await writeFile(join(dir, candidate), data, { flag: 'wx' });
-      return { name: candidate, path: `${UPLOAD_DIR}/${candidate}`, size: data.length };
+      return { name: candidate, path: join(dir, candidate), size: data.length };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     }

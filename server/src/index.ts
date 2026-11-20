@@ -316,7 +316,7 @@ app.delete('/api/me/avatar', async () => {
   return { ok: true };
 });
 
-// A file attached to a chat arrives as its raw bytes and is saved in that chat's folder.
+// A file attached to a chat arrives as its raw bytes and is saved in the data directory.
 app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: MAX_UPLOAD_BYTES }, (_req, body, done) => {
   done(null, body);
 });
@@ -326,14 +326,14 @@ app.post('/api/sessions/:id/files', { bodyLimit: MAX_UPLOAD_BYTES }, async (req,
     reply.code(400).send({ error: 'Send the file itself as the body.' });
     return;
   }
-  let cwd: string;
+  let sessionId: string;
   try {
-    cwd = (await openSession((req.params as { id: string }).id)).cwd;
+    sessionId = (await openSession((req.params as { id: string }).id)).sessionId;
   } catch {
     reply.code(404).send({ error: 'That chat does not exist.' });
     return;
   }
-  return saveUpload(cwd, (req.query as { name?: unknown }).name, req.body);
+  return saveUpload(sessionId, (req.query as { name?: unknown }).name, req.body);
 });
 
 app.get('/api/terminals', async (): Promise<TerminalInfo[]> => listTerminals());
