@@ -1,45 +1,30 @@
-# clack
+# Clack
 
-Clack is a wrapper around Claude Code, with future support for other coding tools.
+Clack gives Claude Code and Codex a shared chat workspace in your browser. Open a
+project on your server, start a change from your laptop, and pick up the same
+conversation on your phone over the local network.
 
-It runs a small web server on one computer and serves a chat UI you can open from any
-other device on the same network, such as a laptop or a phone. Claude Code itself runs
-on the server computer, where it reads files, runs commands and edits code.
+## Highlights
 
-```
-browser  <-- WebSocket -->  clack server  <-- Agent SDK -->  Claude Code  <-->  Anthropic
-```
+![Clack’s Synthwave workspace with project chats in the sidebar and an open conversation](docs/screenshot-synthwave.png)
 
-![clack showing a chat in the Synthwave theme: chats grouped by folder on the left, the conversation on the right](docs/screenshot-synthwave.png)
+- **One chat, either agent.** Ask Claude to sketch an approach, then hand the same
+  conversation to Codex to implement it. Choose the model and effort per chat.
+- **A home for each project.** Open an existing repository, start a chat for each task,
+  and attach a screenshot to show exactly what needs work.
+- **Control from your phone.** Answer questions, approve commands, or stop a turn
+  while the agent works on your server.
 
-*A chat in the Synthwave theme, one of the [themes](#themes) that come with clack.*
+### From a prompt to a patch
 
-## What it does
+> Add a confirmation when my settings are saved. Test what happens if saving fails.
 
-- Chat with streaming replies, laid out like a team chat app: chats in a sidebar, and every
-  message under the name of who sent it
-- Each chat works in its own folder under `data/sessions`, which you name when you start it.
-  Folders can be nested, and the sidebar shows them as a tree
-- Or pick any folder on the computer, such as a project you already have; it gets a tree of
-  its own in the sidebar
-- Runs on Claude Code (Anthropic) or Codex (OpenAI): pick either agent's models per chat,
-  and move a chat to the other agent halfway through. Usage, context and tools are shown
-  per agent
-- Lists the chats started through clack and resumes them
-- Pick the model and effort level per chat
-- Attach pictures and documents to a message for Claude to look at
-- See how much of your Claude plan's limits is used, on a page of its own and as a ring
-  beside the send button
-- Logs every prompt, response, tool call and permission decision, with a live log page in the UI
-- Shows permission prompts in the UI: allow once, always allow, or deny
-- Answers Claude's multiple-choice questions and plan approvals
-- Stop button, and a switch between "auto" (the default for every chat), "ask before changes",
-  "accept file edits" and "plan only". In auto a safety check approves routine actions and
-  only the rest are asked about; where auto is unavailable, chats ask before changes
-- Up and down arrows in an empty message box step through what you sent earlier in the chat
-- Reconnects on its own, so a phone that went to sleep picks up where the conversation is now
-- A Data page with the data directory as a folder tree, file previews, and terminals that
-  run a shell on the server computer
+Open **📋 Plan** to follow the checklist as the agent works.
+
+![Plan checklist showing the save flow traced, the confirmation in progress, and tests pending](docs/screenshot-plan.png)
+
+When the patch is ready, open **Changes** to review the diff file by file.
+You can also run the tests yourself in Clack’s built-in terminal.
 
 ## Setup
 
