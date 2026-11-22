@@ -53,6 +53,9 @@
     { keys: ['Enter'], what: 'Send the message (on a phone, Enter adds a line and the button sends)' },
     { keys: [shift, 'Enter'], what: 'New line in the message' },
     { keys: ['↑', '↓'], what: 'In an empty message box: step through what you sent earlier in the chat' },
+    { keys: [mod, 'E'], what: 'In a note: switch between writing and the preview' },
+    { keys: [mod, 'S'], what: 'In a note: save now (notes also save themselves as you type)' },
+    { keys: [mod, 'B'], what: `In a note: make the selection bold (${mod} I makes it italic)` },
     { keys: ['Esc'], what: 'Close a menu, card or dialog; in the search field, clear it' },
     { keys: ['↑', '↓', 'Enter'], what: 'Move through and pick in menus, the folder finder and the quick switcher' },
     { keys: ['←', '→'], what: 'With the sidebar edge focused: make the sidebar narrower or wider (Enter hides it)' },
@@ -190,6 +193,12 @@
         <li>
           <strong>Attaching files.</strong> Use the <strong>+</strong> button, drop files on the message box, or paste a picture
           into it. They are saved in the chat's folder.
+        </li>
+        <li>
+          <strong>Notes.</strong> <a href="#/notes">Notes</a> in the rail holds markdown notes, kept as <code>.md</code> files in
+          <code>data/notes</code>. Put a note inside another with <strong>+</strong> on its row or by dragging it there;
+          copy one with the copy button, and export a note as <code>.md</code> or a whole branch (or everything) as
+          <code>.zip</code> from the <strong>⋯</strong> menu.
         </li>
         <li>
           <strong>Renaming.</strong> Click a chat's title. Archive, move and delete are in the <strong>⋯</strong> menu.

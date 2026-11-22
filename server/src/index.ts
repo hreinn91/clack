@@ -15,6 +15,8 @@ import type {
   FolderRoot,
   LogPage,
   Me,
+  NoteContent,
+  NoteNode,
   ProviderModels,
   PlanUsage,
   TerminalInfo,
@@ -28,6 +30,7 @@ import { avatarVersion, MAX_AVATAR_BYTES, openAvatar, removeAvatar, saveAvatar }
 import { backend, backends, isProvider, startingProvider } from './agents/registry.ts';
 import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
+import { createNote, deleteNote, exportNotes, listNotes, moveNote, NoteError, readNote, saveNote } from './notes.ts';
 import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, gitDiff, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
 import { defaultPrefs } from './prefs.ts';
@@ -259,7 +262,7 @@ app.get('/api/models', async (req): Promise<ProviderModels[]> =>
 // ---- the data directory: its files and folders, and shells opened in them ----
 
 app.setErrorHandler((err, _req, reply) => {
-  if (err instanceof FileError) return reply.code(err.status).send({ error: err.message });
+  if (err instanceof FileError || err instanceof NoteError) return reply.code(err.status).send({ error: err.message });
   return reply.send(err);
 });
 
@@ -334,6 +337,53 @@ app.post('/api/sessions/:id/files', { bodyLimit: MAX_UPLOAD_BYTES }, async (req,
     return;
   }
   return saveUpload(sessionId, (req.query as { name?: unknown }).name, req.body);
+});
+
+// ---- notes: markdown files in data/notes, sub-notes in a folder beside each ----
+
+app.get('/api/notes', async (): Promise<NoteNode[]> => listNotes());
+
+app.get('/api/notes/content', async (req): Promise<NoteContent> => readNote(pathOf(req)));
+
+app.put('/api/notes/content', { bodyLimit: 6 * 1024 * 1024 }, async (req, reply) => {
+  const body = (req.body ?? {}) as { path?: unknown; text?: unknown; base?: unknown };
+  try {
+    return await saveNote(body.path, body.text, body.base);
+  } catch (err) {
+    // Changed somewhere else: the newer text goes back, for the editor to show.
+    if (err instanceof NoteError && err.status === 409) {
+      return reply.code(409).send({ error: err.message, note: await readNote(body.path) });
+    }
+    throw err;
+  }
+});
+
+app.post('/api/notes', async (req) => {
+  const body = (req.body ?? {}) as { parent?: unknown; title?: unknown };
+  return { path: await createNote(body.parent ?? '', body.title) };
+});
+
+app.patch('/api/notes', async (req) => {
+  const body = (req.body ?? {}) as { path?: unknown; title?: unknown; parent?: unknown };
+  return { path: await moveNote(body.path, body.title, body.parent) };
+});
+
+app.delete('/api/notes', async (req) => {
+  await deleteNote(pathOf(req));
+  return { ok: true };
+});
+
+// A note as a .md file, or it and its sub-notes (or every note, with no path) as a .zip.
+app.get('/api/notes/export', async (req, reply) => {
+  const query = req.query as { path?: unknown; format?: unknown };
+  const file = await exportNotes(query.path ?? '', query.format === 'zip');
+  const ascii = file.name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return reply
+    .header('content-type', file.type)
+    .header('content-disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+    .header('cache-control', 'no-store')
+    .header('x-content-type-options', 'nosniff')
+    .send(file.data);
 });
 
 app.get('/api/terminals', async (): Promise<TerminalInfo[]> => listTerminals());

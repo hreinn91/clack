@@ -3,7 +3,7 @@
 
   const mac = /Mac|iPhone|iPad/.test(navigator.platform);
   // The field narrows whatever the sidebar is showing.
-  const hint = $derived(app.changesOpen ? 'Filter changed files' : app.route.name === 'data' ? 'Filter files' : 'Search chats and folders');
+  const hint = $derived(app.changesOpen ? 'Filter changed files' : app.route.name === 'data' ? 'Filter files' : app.route.name === 'notes' ? 'Filter notes' : 'Search chats and folders');
 
   const hidden = $derived(app.changesOpen ? app.changesListHidden : app.sidebarHidden);
 

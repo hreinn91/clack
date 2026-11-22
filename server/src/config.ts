@@ -52,6 +52,8 @@ export const config = {
   dataDir,
   /** The only place chats can run: each one works in a folder directly under this. */
   sessionsDir: join(dataDir, 'sessions'),
+  /** Notes: one markdown file each, a note's sub-notes in a folder of the same name beside it. */
+  notesDir: join(dataDir, 'notes'),
   /** Folders outside data/sessions that chats may work in too, added from the UI. */
   rootsFile: join(dataDir, 'roots.json'),
   /** Whether folders outside data/sessions can be browsed and added. On unless CLACK_OUTSIDE_FOLDERS says otherwise. */

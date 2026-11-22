@@ -1,10 +1,34 @@
 <script lang="ts">
+  import type { NoteNode } from '../../../shared/protocol';
+  import { notes } from '../lib/notes.svelte';
   import { app } from '../lib/state.svelte';
   import ChatList from './ChatList.svelte';
+  import NoteBranch from './NoteBranch.svelte';
   import TreeDir from './TreeDir.svelte';
 
-  // On the Data page the sidebar shows the data directory instead of the chats.
+  // On the Data page the sidebar shows the data directory instead of the chats, and on Notes the notes.
   const onData = $derived(app.route.name === 'data');
+  const onNotes = $derived(app.route.name === 'notes');
+  const query = $derived(app.search.trim().toLowerCase());
+  const hint = $derived(onData ? 'Filter files' : onNotes ? 'Filter notes' : 'Search chats and folders');
+  const named = (node: NoteNode): boolean => node.title.toLowerCase().includes(query) || node.children.some(named);
+  const noMatch = $derived(onNotes && query !== '' && !notes.tree.some(named));
+
+  $effect(() => {
+    if (onNotes && !notes.loaded) void notes.load();
+  });
+
+  /** A dragged note held over the Notes heading, to go back to the top. */
+  let topOver = $state(false);
+
+  function dropTop(event: DragEvent) {
+    event.preventDefault();
+    const from = notes.dragging;
+    const allowed = notes.canDrop('');
+    notes.dragging = null;
+    topOver = false;
+    if (from && allowed) void notes.move(from, '');
+  }
 
   let refreshing = $state(false);
 
@@ -15,10 +39,17 @@
   }
 </script>
 
-<nav class="side" aria-label={onData ? 'Files' : 'Chats'}>
+<nav class="side" aria-label={onData ? 'Files' : onNotes ? 'Notes' : 'Chats'}>
   <header>
     <span class="brand">clack</span>
-    {#if onData}
+    {#if onNotes}
+      <button class="compose" aria-label="New note" title="New note" onclick={() => void notes.create()}>
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 2.75H5.5a1.5 1.5 0 0 0-1.5 1.5v11.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V7.75z" />
+          <path d="M11 2.75v5h5M10 10.25v4.5M7.75 12.5h4.5" />
+        </svg>
+      </button>
+    {:else if onData}
       <button class="compose" class:spin={refreshing} aria-label="Refresh" title="Read the folders again" onclick={refresh}>
         <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M16 10a6 6 0 1 1-1.8-4.3M16.5 3.5v3h-3" />
@@ -38,13 +69,50 @@
   <input
     class="find"
     type="search"
-    placeholder={onData ? 'Filter files' : 'Search chats and folders'}
-    aria-label={onData ? 'Filter files' : 'Search chats and folders'}
+    placeholder={hint}
+    aria-label={hint}
     bind:value={app.search}
   />
 
   <div class="scroll">
-    {#if onData}
+    {#if onNotes}
+      <section>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="root"
+          class:over={topOver}
+          ondragover={(event) => {
+            if (!notes.canDrop('')) return;
+            event.preventDefault();
+            topOver = true;
+          }}
+          ondragleave={() => (topOver = false)}
+          ondrop={dropTop}
+        >
+          <h2 title="Kept as markdown files in data/notes">{topOver ? 'Move to the top' : 'Notes'}</h2>
+          {#if notes.tree.length}
+            <button aria-label="Export all notes as a zip" title="Export all notes (.zip)" onclick={() => void notes.download('', true)}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 2.5v7.5M4.75 7 8 10.25 11.25 7M2.75 12.5v.75c0 .41.34.75.75.75h9c.41 0 .75-.34.75-.75v-.75" />
+              </svg>
+            </button>
+          {/if}
+        </div>
+        {#if !notes.loaded}
+          <p class="empty">Loading…</p>
+        {:else if !notes.tree.length}
+          <div class="empty">
+            <p>No notes yet.</p>
+            <button class="start" onclick={() => void notes.create()}>New note</button>
+          </div>
+        {:else}
+          <NoteBranch nodes={notes.tree} depth={0} {query} />
+          {#if noMatch}
+            <p class="empty">No note is called that.</p>
+          {/if}
+        {/if}
+      </section>
+    {:else if onData}
       <section>
         <div class="root">
           <h2 title={app.dataDir}>Data</h2>
@@ -135,6 +203,34 @@
   .root button:hover {
     background: var(--chrome-tile);
     color: var(--chrome-strong);
+  }
+
+  .root.over {
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 2px var(--link);
+  }
+
+  .empty {
+    margin: 4px 8px;
+    font-size: 13px;
+  }
+
+  .empty p {
+    margin: 0 0 8px;
+  }
+
+  .start {
+    height: 30px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--chrome-tile);
+    color: var(--chrome-strong);
+    font-weight: 700;
+  }
+
+  .start:hover {
+    background: var(--chrome-hover);
   }
 
   .find {

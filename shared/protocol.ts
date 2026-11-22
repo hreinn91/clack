@@ -293,6 +293,10 @@ export type ServerMessage =
     }
   | { t: 'event'; sessionId: string; event: SessionEvent }
   | { t: 'sessions_changed' }
+  /** Notes were added, renamed, moved or deleted: the tree should be fetched again. */
+  | { t: 'notes_changed' }
+  /** A note was saved (here or in another browser): one showing it may read it again. */
+  | { t: 'note_saved'; path: string; modified: number }
   /** A terminal was opened or went away: the list should be fetched again. */
   | { t: 'terminals_changed' }
   /** Fresh figures for the plan's limits. */
@@ -405,6 +409,18 @@ export type BrowseListing = {
   /** Inside clack's own data directory, which cannot be added. */
   inData: boolean;
 };
+
+/** A note in the notes tree. `path` is its place from data/notes, without ".md" ("Project/Plan"). */
+export type NoteNode = {
+  path: string;
+  title: string;
+  /** When the note was last saved; milliseconds since epoch. */
+  modified: number;
+  children: NoteNode[];
+};
+
+/** A note's text, for the editor. */
+export type NoteContent = { path: string; title: string; text: string; modified: number };
 
 /** One file or folder under the data directory. */
 export type FileEntry = { name: string; kind: 'dir' | 'file'; size: number; modified: number };

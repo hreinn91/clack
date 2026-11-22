@@ -1,17 +1,23 @@
 <script lang="ts">
   import { folderPath, providerName } from '../lib/format';
+  import { flatten, noteHref, notes, parentOf } from '../lib/notes.svelte';
   import { app } from '../lib/state.svelte';
   import Modal from './Modal.svelte';
 
   // The quick switcher: type a few letters, press Enter, and be in another
-  // chat, a new chat, or another page.
-  type Entry = { id: string; kind: 'chat' | 'new' | 'page'; label: string; hint?: string; run: () => void };
+  // chat, a new chat, a note, or another page.
+  type Entry = { id: string; kind: 'chat' | 'new' | 'page' | 'note'; label: string; hint?: string; run: () => void };
+
+  $effect(() => {
+    if (!notes.loaded) void notes.load();
+  });
 
   let query = $state('');
   let at = $state(0);
   let list = $state<HTMLElement>();
 
   const PAGES: { label: string; hash: string }[] = [
+    { label: 'Notes', hash: '#/notes' },
     { label: 'Usage and limits', hash: '#/usage' },
     { label: 'Tools, skills and MCP servers', hash: '#/tools' },
     { label: 'Activity log', hash: '#/debug/log' },
@@ -45,6 +51,11 @@
     }
 
     if (words.length) {
+      for (const { node } of flatten(notes.tree)) {
+        if (!matches(node.path)) continue;
+        const parent = parentOf(node.path);
+        out.push({ id: `note:${node.path}`, kind: 'note', label: node.title, hint: parent ? `Note in ${parent.split('/').join(' / ')}` : 'Note', run: () => go(noteHref(node.path)) });
+      }
       for (const folder of app.pickableFolders) {
         if (!matches(folder.name) || folder.name === slug) continue;
         out.push({ id: `folder:${folder.name}`, kind: 'new', label: `New chat in ${folder.name}`, hint: 'Existing folder', run: () => void app.newSession(folder.name) });
@@ -53,6 +64,8 @@
         const known = app.folders.some((folder) => folder.name === slug);
         out.push({ id: 'create', kind: 'new', label: `New chat in ${slug}`, hint: known ? 'Existing folder' : 'New folder', run: () => void app.newSession(slug) });
       }
+      const title = query.trim();
+      if (title && !title.includes('/')) out.push({ id: 'note-create', kind: 'new', label: `New note “${title}”`, hint: 'Note', run: () => void notes.create('', title) });
       for (const page of PAGES) {
         if (matches(page.label)) out.push({ id: page.hash, kind: 'page', label: page.label, hint: 'Page', run: () => go(page.hash) });
       }
@@ -122,6 +135,8 @@
         <span class="icon" aria-hidden="true">
           {#if entry.kind === 'chat'}
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z" /></svg>
+          {:else if entry.kind === 'note'}
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"><path d="M4 1.75h5l3.25 3.25v8.25c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1v-10.5c0-.55.45-1 1-1z" /><path d="M5.5 8h5M5.5 10.5h3.5" /></svg>
           {:else if entry.kind === 'new'}
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>
           {:else}

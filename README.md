@@ -222,7 +222,8 @@ The window has four parts:
 
 - **Top bar:** back and forward, and a search field that narrows the chats and folders
   in the sidebar as you type. Escape clears it.
-- **Rail** on the far left: **Home** returns to the most recent chat, **Usage** shows
+- **Rail** on the far left: **Home** returns to the most recent chat, **Notes** opens
+  your [notes](#notes) at the one you had open last, **Usage** shows
   your plan's [limits](#usage), **Tools** lists the [MCP servers, skills and
   tools](#tools-and-skills) Claude can use, **Activity** opens
   the [activity log](#activity-log), **Data** opens the [data page](#data-page),
@@ -234,7 +235,8 @@ The window has four parts:
   to your messages. **Change picture…** and **Remove picture** are there once you have one.
 - **Sidebar:** **Chats** shows the folders under `data/sessions` as a tree, with each
   folder's chats listed under it. The dot before a chat is lit and pulsing while Claude
-  is working in it. See [Managing chats](#managing-chats).
+  is working in it. See [Managing chats](#managing-chats). On the Notes page it shows
+  the notes instead, and on the Data page the data directory.
 - **Message box:** beside the send button, where the chat works is written like a shell
   prompt: the folder (deep ones shortened to their last two parts) and, when the folder
   is in a git repository, `on` and the branch, with a `*` when something is not
@@ -328,6 +330,10 @@ data/
   roots.json              the folders outside data/sessions that were added
   chats.json              chats that ran on Codex or switched agent: which conversations each is made of
   avatar.webp             your picture, if you uploaded one (or avatar.png / avatar.jpg)
+  notes/
+    Project ideas.md      a note
+    Project ideas/        the notes inside it
+      Clack notes.md
 ```
 
 The **New chat** page asks where the chat should work, with three choices:
@@ -428,6 +434,48 @@ Agent SDK) or **Codex** (OpenAI, through `codex app-server`).
   details (Codex passes those requests on), the card shows a small form.
 - **Conversations started elsewhere.** As with Claude Code, chats you had with the
   `codex` command in a folder clack knows show up in the sidebar and can be carried on.
+
+## Notes
+
+**Notes** in the rail is a place to write things down next to your chats: plans,
+checklists, snippets, things to tell the agent later. Notes are markdown, and they
+are kept on the server as plain `.md` files in `data/notes`, so you can read and edit
+them outside clack too.
+
+![A note in clack's preview, with a heading, a task list and a highlighted code block](docs/screenshot-notes.png)
+
+- **A tree, like the chats.** The sidebar lists your notes. A note can hold other notes,
+  as deep as you like: **+** on a note's row (or **Add a sub-note** at the bottom of the
+  note) makes one inside it, and the arrow folds them away. The new-note button at the
+  top of the sidebar makes one at the top level. Drag a note onto another to put it
+  inside, or onto the **Notes** heading to bring it back to the top. The search field
+  narrows the tree by name, and Cmd+K finds notes by name too.
+- **Naming.** A new note opens with its title selected: type a name and press Enter to
+  start writing. Rename a note from its title, by double-clicking it in the sidebar, or
+  from its **⋯** menu. Characters a file name cannot hold (such as `/` or `:`) become
+  `-`, and a name that is taken gets a number, as in **Plan 2**.
+- **Writing.** Notes save themselves a moment after you stop typing, and the bar says
+  **Saving…** or **Saved**; Cmd+S saves straight away. **Edit** and **Preview** switch
+  between the markdown and how it reads (Cmd+E switches too, and the choice is
+  remembered). In the editor, Enter carries a list on (`-`, `1.`, `- [ ]`) and ends it
+  on an empty item, Tab and Shift+Tab indent list items, and Cmd+B and Cmd+I make the
+  selection bold or italic. In the preview, code is coloured in the theme's code
+  colours, and task boxes can be ticked, which ticks them in the text.
+- **Copy and export.** The copy button copies the note's markdown. The **⋯** menu
+  (on the note and on its row in the sidebar) has **Export as Markdown** for the note's
+  `.md` file and, for a note with notes inside it, **Export with sub-notes (.zip)**,
+  which keeps the tree as folders. The download button beside the **Notes** heading
+  exports every note as one `.zip`.
+- **Moving and deleting.** **Move to…** in the **⋯** menu picks a new place from a list.
+  **Delete…** asks first, says how many notes inside it go too, and offers an export
+  before they do. A deleted note cannot be brought back.
+- **More than one browser.** A note saved in another browser shows up in this one
+  straight away. If you were typing here at the same time, a bar asks whether to keep
+  your version or use the other one, so neither is lost without asking.
+
+A folder in `data/notes` with no `.md` beside it is shown as an empty note, so notes
+dropped into the folder by hand appear too. Files that are not `.md`, hidden files and
+symlinks are left out.
 
 ## Usage
 
@@ -715,10 +763,12 @@ npm run codex:types --workspace server
 | `server/src/uploads.ts` | Saves chat attachments under the data directory |
 | `server/src/capabilities.ts` | Asks Claude Code which MCP servers, skills, agents and tools it has, for the Tools page |
 | `server/src/git.ts` | Reads a chat's uncommitted changes from git, with lines added and removed per file |
+| `server/src/notes.ts` | Keeps the notes as markdown files in `data/notes`: the tree, saving, renaming, moving, deleting and the `.md` / `.zip` export |
 | `server/src/tasks.ts` | Keeps track of each chat's background tasks and agents from Claude Code's task events |
 | `server/src/usage.ts` | Reads how much of the Claude plan's limits is used |
 | `server/src/relocate.ts` | Moves a conversation within Claude Code's storage when a chat changes folder |
 | `web/src/lib/theme.svelte.ts` | The themes, and how the app's colours are worked out from one |
+| `web/src/lib/notes.svelte.ts` | The notes in the browser: the tree, the open note and its autosave |
 | `server/src/index.ts` | Fastify server: sign-in, session list, folders, models, static files |
 | `shared/protocol.ts` | Message types shared by server and UI |
 | `web/src/App.svelte` | The window: top bar, rail, sidebar and the open page |

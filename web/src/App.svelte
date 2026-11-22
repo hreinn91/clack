@@ -7,6 +7,8 @@
   import Debug from './components/Debug.svelte';
   import Login from './components/Login.svelte';
   import NewChat from './components/NewChat.svelte';
+  import NoteDialogs from './components/NoteDialogs.svelte';
+  import Notes from './components/Notes.svelte';
   import Palette from './components/Palette.svelte';
   import Rail from './components/Rail.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -140,6 +142,8 @@
         <Theme onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'help'}
         <Help onmenu={() => (drawerOpen = true)} />
+      {:else if app.route.name === 'notes'}
+        <Notes onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'usage'}
         <Usage onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'tools'}
@@ -151,6 +155,7 @@
     {#if app.changesOpen}<ChangesPane />{/if}
   </div>
   <ChatDialogs />
+  <NoteDialogs />
   {#if app.paletteOpen}<Palette />{/if}
 {/if}
 

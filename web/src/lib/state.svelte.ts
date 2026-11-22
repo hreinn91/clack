@@ -32,6 +32,7 @@ import type {
 } from '../../../shared/protocol';
 import { api, ApiError } from './api';
 import { authorName, isOutside, within, withEffort } from './format';
+import { notes } from './notes.svelte';
 
 export type Route =
   | { name: 'new'; folder?: string; elsewhere?: boolean }
@@ -41,7 +42,9 @@ export type Route =
   | { name: 'theme' }
   | { name: 'help' }
   | { name: 'usage' }
-  | { name: 'tools' };
+  | { name: 'tools' }
+  /** A note, by its path; '' for the notes overview. */
+  | { name: 'notes'; path: string };
 
 function parseRoute(): Route {
   const match = location.hash.match(/^#\/s\/([0-9a-f-]{36})$/i);
@@ -53,6 +56,12 @@ function parseRoute(): Route {
   if (location.hash === '#/help') return { name: 'help' };
   if (location.hash === '#/usage') return { name: 'usage' };
   if (location.hash === '#/tools') return { name: 'tools' };
+  const note = location.hash.match(/^#\/notes(?:\/(.*))?$/);
+  if (note) {
+    const parts = (note[1] ?? '').split('/').map(safeDecode);
+    const plain = parts.every((part) => part !== '' && !part.startsWith('.') && !part.includes('\\'));
+    return { name: 'notes', path: note[1] && plain ? parts.join('/') : '' };
+  }
   // The new-chat page, opened on picking a folder anywhere on this computer.
   if (location.hash === '#/new-elsewhere') return { name: 'new', elsewhere: true };
   // A folder picked in the sidebar: the new-chat page opens with it filled in.
@@ -682,6 +691,8 @@ class AppState {
       // Entries written while the connection was down are picked up by loading again.
       if (this.#watchingLogs) void this.watchLogs(true);
       void this.loadSessions();
+      // Notes may have changed in another browser while this one was away.
+      if (notes.loaded) void notes.load();
     };
     ws.onmessage = (event) => this.#onMessage(JSON.parse(event.data));
     ws.onclose = () => {
@@ -773,6 +784,12 @@ class AppState {
         break;
       case 'terminals_changed':
         void this.loadTerminals();
+        break;
+      case 'notes_changed':
+        void notes.load();
+        break;
+      case 'note_saved':
+        void notes.onSaved(msg.path, msg.modified);
         break;
       case 'usage':
         this.usages[msg.usage.provider] = msg.usage;

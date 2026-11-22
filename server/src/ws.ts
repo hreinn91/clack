@@ -6,6 +6,7 @@ import { bus, isEffort, isPermissionMode, openSession } from './sessions.ts';
 import type { LiveSession, Listener } from './sessions.ts';
 import { getTerminal, terminalBus } from './terminal.ts';
 import { usageBus } from './agents/bus.ts';
+import { notesBus } from './notes.ts';
 import { isProvider } from './agents/registry.ts';
 
 const MAX_PROMPT_CHARS = 200_000;
@@ -28,6 +29,13 @@ export function registerWs(app: FastifyInstance): void {
     const data = JSON.stringify({ t: 'usage', usage } satisfies ServerMessage);
     for (const socket of alive.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
   });
+
+  const broadcast = (msg: ServerMessage) => {
+    const data = JSON.stringify(msg);
+    for (const socket of alive.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
+  };
+  notesBus.on('changed', () => broadcast({ t: 'notes_changed' }));
+  notesBus.on('saved', (path: string, modified: number) => broadcast({ t: 'note_saved', path, modified }));
 
   terminalBus.on('changed', () => {
     const data = JSON.stringify({ t: 'terminals_changed' } satisfies ServerMessage);

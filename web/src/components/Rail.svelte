@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { noteHref, notes } from '../lib/notes.svelte';
   import { app } from '../lib/state.svelte';
   import { providerName } from '../lib/format';
   import Avatar from './Avatar.svelte';
@@ -39,6 +40,7 @@
       app.route.name === 'theme' ||
       app.route.name === 'usage' ||
       app.route.name === 'tools' ||
+      app.route.name === 'notes' ||
       app.route.name === 'help'
       ? app.route.name
       : 'home',
@@ -71,6 +73,17 @@
       </svg>
     </span>
     Home
+  </a>
+
+  <!-- Back to the note open last, as Home goes back to the latest chat. -->
+  <a class="item" class:active={section === 'notes'} href={noteHref(notes.last)} aria-current={section === 'notes' ? 'page' : undefined}>
+    <span class="tile">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 2.75h7.5l3 3V16a1.25 1.25 0 0 1-1.25 1.25H5A1.25 1.25 0 0 1 3.75 16V4A1.25 1.25 0 0 1 5 2.75z" />
+        <path d="M7 8.5h6M7 11.5h6M7 14.5h3.5" />
+      </svg>
+    </span>
+    Notes
   </a>
 
   <a class="item" class:active={section === 'usage'} href="#/usage" aria-current={section === 'usage' ? 'page' : undefined}>
