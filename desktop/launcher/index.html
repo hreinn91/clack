@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clack</title>
+    <link rel="stylesheet" href="launcher.css" />
+    <script src="launcher.js" defer></script>
+  </head>
+  <body>
+    <main class="card" aria-live="polite">
+      <header>
+        <img src="icon.svg" alt="" width="40" height="40" />
+        <h1>Clack</h1>
+      </header>
+
+      <!-- Connecting to (or starting) the server. -->
+      <section id="busy" hidden>
+        <p class="status"><span class="spinner"></span> <span id="busy-text">Connecting…</span></p>
+        <pre id="busy-log" class="log" hidden></pre>
+        <button id="busy-cancel" class="link" type="button" hidden>Cancel</button>
+      </section>
+
+      <!-- Picking a server, or what to do when it does not answer. -->
+      <section id="pick" hidden>
+        <p id="problem" class="problem" role="alert" hidden></p>
+
+        <form id="connect">
+          <label for="address">Server</label>
+          <div class="row">
+            <input id="address" type="text" spellcheck="false" autocomplete="off" placeholder="http://localhost:4317" />
+            <button class="btn primary" type="submit">Connect</button>
+          </div>
+          <p class="hint">
+            The address of a Clack server: this computer's, or one on your network. A browser can open the same address
+            at the same time.
+          </p>
+        </form>
+
+        <div id="local" class="local" hidden>
+          <h2>Start Clack on this computer</h2>
+          <dl>
+            <dt>Clack folder</dt>
+            <dd>
+              <code id="folder">Not chosen</code>
+              <button id="choose" class="link" type="button">Choose…</button>
+            </dd>
+            <dt>Node.js</dt>
+            <dd id="node">Looking…</dd>
+          </dl>
+          <ul id="folder-problems" class="problems" hidden></ul>
+          <label class="check"><input id="auto" type="checkbox" /> Start it by itself when the app opens and it is not running</label>
+          <div class="row end">
+            <button id="start" class="btn" type="button">Start Clack</button>
+          </div>
+          <pre id="start-log" class="log" hidden></pre>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
