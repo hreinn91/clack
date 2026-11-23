@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Capabilities, Provider } from '../../../shared/protocol';
   import { ago, providerMaker, providerName } from '../lib/format';
   import { app } from '../lib/state.svelte';
@@ -39,16 +40,21 @@
     }
   }
 
-  // Asked again whenever another folder or agent is picked.
+  // Asked again whenever another folder or agent is picked, and only then. load() reads
+  // what it is about to replace (the last answer), so it runs untracked: otherwise every
+  // answer would count as a change and ask again, over and over.
   $effect(() => {
     folder;
     provider;
-    void load();
+    untrack(() => void load());
   });
 
+  // Once, on opening the page.
   $effect(() => {
-    void app.loadFolders();
-    void app.loadModels();
+    untrack(() => {
+      void app.loadFolders();
+      void app.loadModels();
+    });
   });
 
   /** The agents to choose between: the ones this server offers. */
