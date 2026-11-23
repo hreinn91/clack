@@ -15,6 +15,7 @@ import type {
   FolderRoot,
   LogPage,
   Me,
+  MessageDraft,
   NoteContent,
   NoteNode,
   ProviderModels,
@@ -30,6 +31,7 @@ import { avatarVersion, MAX_AVATAR_BYTES, openAvatar, removeAvatar, saveAvatar }
 import { backend, backends, isProvider, startingProvider } from './agents/registry.ts';
 import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
+import { flushDrafts, listDrafts, saveDraft } from './drafts.ts';
 import { createNote, deleteNote, exportNotes, listNotes, moveNote, NoteError, readNote, saveNote } from './notes.ts';
 import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, gitDiff, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
@@ -108,6 +110,18 @@ app.patch('/api/sessions/:id', async (req, reply) => {
 });
 
 // What fills a chat's context window, for the panel under the chat's title.
+// What was typed in each chat and not sent yet, so it waits in its own chat, on any device.
+app.get('/api/drafts', async (): Promise<Record<string, MessageDraft>> => listDrafts());
+
+app.put('/api/drafts/:id', { bodyLimit: 1024 * 1024 }, async (req, reply) => {
+  try {
+    const draft = saveDraft((req.params as { id: string }).id, req.body, req.headers['x-clack-client']);
+    return { at: draft?.at ?? null };
+  } catch (err) {
+    return reply.code(400).send({ error: err instanceof Error ? err.message : 'That draft could not be saved.' });
+  }
+});
+
 app.get('/api/sessions/:id/context', async (req, reply): Promise<ContextDetail | undefined> => {
   try {
     return await contextDetail((req.params as { id: string }).id);
@@ -408,6 +422,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     shutdownAll();
     closeAllTerminals();
+    flushDrafts();
     void app.close().finally(() => process.exit(0));
   });
 }

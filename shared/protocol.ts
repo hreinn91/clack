@@ -293,6 +293,8 @@ export type ServerMessage =
     }
   | { t: 'event'; sessionId: string; event: SessionEvent }
   | { t: 'sessions_changed' }
+  /** A chat's unsent message changed, in this browser tab (`client`) or another; null when it was sent or cleared. */
+  | { t: 'message_draft'; sessionId: string; draft: MessageDraft | null; client: string }
   /** Notes were added, renamed, moved or deleted: the tree should be fetched again. */
   | { t: 'notes_changed' }
   /** A note was saved (here or in another browser): one showing it may read it again. */
@@ -451,6 +453,9 @@ export type FilePreview = {
  * per file. The UI recognises that ending and shows the files instead.
  */
 export type Upload = { name: string; path: string; size: number };
+
+/** What was typed in a chat's message box and not sent yet, with its attachments. `at`: when it was saved. */
+export type MessageDraft = { text: string; attached: Upload[]; at: number };
 
 /** A shell running on the server. `cwd` is where it was started, relative to the data directory. */
 export type TerminalInfo = { id: string; title: string; cwd: string; created: number };

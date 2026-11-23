@@ -237,8 +237,12 @@ The window has four parts:
   folder's chats listed under it. The dot before a chat is lit and pulsing while Claude
   is working in it. See [Managing chats](#managing-chats). On the Notes page it shows
   the notes instead, and on the Data page the data directory.
-- **Message box:** beside the send button, where the chat works is written like a shell
-  prompt: the folder (deep ones shortened to their last two parts) and, when the folder
+- **Message box:** what you type stays with its chat. Open another chat and that one's
+  own unsent message (and attached files) shows instead; come back and yours is still
+  there, after a reload or a server restart too. Drafts are kept on the server, in
+  `data/drafts.json`, so a message started on the laptop is waiting on the phone, and
+  clearing or sending it there clears it everywhere. Beside the send button, where the
+  chat works is written like a shell prompt: the folder (deep ones shortened to their last two parts) and, when the folder
   is in a git repository, `on` and the branch, with a `*` when something is not
   committed. Only repositories under `data/sessions`
   count. Click it to [change the folder](#managing-chats).
@@ -330,6 +334,7 @@ data/
   roots.json              the folders outside data/sessions that were added
   chats.json              chats that ran on Codex or switched agent: which conversations each is made of
   avatar.webp             your picture, if you uploaded one (or avatar.png / avatar.jpg)
+  drafts.json             what was typed in each chat's message box and not sent yet
   notes/
     Project ideas.md      a note
     Project ideas/        the notes inside it
@@ -763,6 +768,7 @@ npm run codex:types --workspace server
 | `server/src/uploads.ts` | Saves chat attachments under the data directory |
 | `server/src/capabilities.ts` | Asks Claude Code which MCP servers, skills, agents and tools it has, for the Tools page |
 | `server/src/git.ts` | Reads a chat's uncommitted changes from git, with lines added and removed per file |
+| `server/src/drafts.ts` | Keeps each chat's unsent message, so it stays with its chat across devices and restarts |
 | `server/src/notes.ts` | Keeps the notes as markdown files in `data/notes`: the tree, saving, renaming, moving, deleting and the `.md` / `.zip` export |
 | `server/src/tasks.ts` | Keeps track of each chat's background tasks and agents from Claude Code's task events |
 | `server/src/usage.ts` | Reads how much of the Claude plan's limits is used |
@@ -849,7 +855,8 @@ If people other than you will use the UI, treat it as giving them a shell on the
 - The access token is stored in `~/.config/clack/token`. Delete that file and restart to
   get a new one, which also signs every browser out.
 - `data/logs` holds every prompt and response in plain text, and anyone signed in to the
-  UI can read all of it on the activity page, across all chats.
+  UI can read all of it on the activity page, across all chats. Unsent messages are kept
+  in plain text in `data/drafts.json` until they are sent or cleared.
 - `data/` is not checked in, but it holds whatever the chats produced. Claude Code's own
   transcripts are stored outside the repository, in `~/.claude/projects`.
 - This is for your own use with your own Claude subscription. Anthropic's terms do not

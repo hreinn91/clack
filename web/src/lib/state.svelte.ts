@@ -32,6 +32,7 @@ import type {
 } from '../../../shared/protocol';
 import { api, ApiError } from './api';
 import { authorName, isOutside, within, withEffort } from './format';
+import { drafts } from './drafts.svelte';
 import { notes } from './notes.svelte';
 
 export type Route =
@@ -693,6 +694,8 @@ class AppState {
       void this.loadSessions();
       // Notes may have changed in another browser while this one was away.
       if (notes.loaded) void notes.load();
+      // So may the unsent messages; and any typed here while the server was away go out now.
+      void drafts.resync();
     };
     ws.onmessage = (event) => this.#onMessage(JSON.parse(event.data));
     ws.onclose = () => {
@@ -784,6 +787,9 @@ class AppState {
         break;
       case 'terminals_changed':
         void this.loadTerminals();
+        break;
+      case 'message_draft':
+        drafts.onRemote(msg.sessionId, msg.draft, msg.client);
         break;
       case 'notes_changed':
         void notes.load();

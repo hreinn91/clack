@@ -36,6 +36,7 @@ import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, inside
 import { gitFileDiff, gitStatus } from './git.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs, saveSessionPrefs } from './prefs.ts';
+import { forgetDraft } from './drafts.ts';
 import type { Prefs } from './prefs.ts';
 
 export type Listener = (msg: ServerMessage) => void;
@@ -767,6 +768,7 @@ export async function deleteChat(sessionId: string): Promise<void> {
   }
   forgetSession(sessionId);
   forgetChat(sessionId);
+  forgetDraft(sessionId);
   bus.emit('sessions_changed');
 }
 

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { EffortLevel, PermissionMode, Provider, Upload } from '../../../shared/protocol';
   import { fileSize, isImagePath, providerMaker, providerName, splitAttachments, withAttachments } from '../lib/format';
+  import { drafts } from '../lib/drafts.svelte';
   import { app } from '../lib/state.svelte';
   import FolderPrompt from './FolderPrompt.svelte';
   import Picker from './Picker.svelte';
@@ -118,11 +119,6 @@
 
   const canSend = $derived(ready && !app.running && uploading === 0 && (text.trim() !== '' || attached.length > 0));
 
-  // Attachments belong to the chat they were added in.
-  $effect(() => {
-    app.sessionId;
-    attached = [];
-  });
 
   async function attach(files: Iterable<File>) {
     for (const file of files) {
@@ -177,10 +173,55 @@
   /** Which earlier message the box is showing, counted back from the newest; null when it is not showing one. */
   let recalled = $state<number | null>(null);
 
-  // A new chat has a history of its own.
+  /** The chat whose draft the box is showing. */
+  let shownFor: string | null = null;
+
+  /**
+   * What is typed (and attached) stays with the chat it was typed in: opening
+   * another chat shows that one's draft instead, and coming back brings this
+   * one back, after a reload or a restart too. The earlier-message history
+   * starts over with each chat.
+   */
   $effect(() => {
-    app.sessionId;
-    recalled = null;
+    const id = app.sessionId;
+    void drafts.loaded;
+    untrack(() => {
+      // The drafts arrived after the chat opened: shown, unless typing has already begun.
+      if (id === shownFor && (text !== '' || attached.length)) return;
+      shownFor = id;
+      const draft = id ? drafts.get(id) : undefined;
+      text = draft?.text ?? '';
+      attached = draft ? draft.attached.map((file) => ({ ...file })) : [];
+      recalled = null;
+    });
+  });
+
+  // Every change is kept as the chat's draft.
+  $effect(() => {
+    const current = text;
+    const files = $state.snapshot(attached);
+    untrack(() => {
+      if (shownFor) drafts.set(shownFor, current, files);
+    });
+  });
+
+  /** When this box was last typed in. */
+  let typedAt = 0;
+
+  // The same chat's draft changed in another browser or on another device (or was sent from there): shown here too,
+  // unless someone is typing in this box right now, whose text then wins.
+  $effect(() => {
+    const id = app.sessionId;
+    const draft = id ? drafts.all[id] : undefined;
+    untrack(() => {
+      if (id !== shownFor || Date.now() - typedAt < 1500) return;
+      const next = draft?.text ?? '';
+      const files = draft?.attached ?? [];
+      if (next === text && files.length === attached.length && files.every((file, i) => file.path === attached[i]!.path)) return;
+      text = next;
+      attached = files.map((file) => ({ ...file }));
+      recalled = null;
+    });
   });
 
   /**
@@ -312,6 +353,7 @@
     <textarea
       bind:this={area}
       bind:value={text}
+      oninput={() => (typedAt = Date.now())}
       {onkeydown}
       {onpaste}
       rows="1"

@@ -60,6 +60,8 @@ export const config = {
   outsideFolders: !/^(0|off|false|no)$/i.test(process.env.CLACK_OUTSIDE_FOLDERS?.trim() ?? ''),
   /** Model and effort choices, remembered per chat. */
   prefsFile: join(dataDir, 'preferences.json'),
+  /** What was typed in each chat's message box and not sent yet. */
+  draftsFile: join(dataDir, 'drafts.json'),
   /**
    * Codex as a second agent. Listed unless off; where the codex command is not
    * installed it shows as not available. (auto and on mean the same.)
