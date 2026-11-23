@@ -109,7 +109,7 @@ See [Security](security.md) before using terminals on a network you share.
 
 **Theme** in the rail changes how Clack looks. The choice is remembered per browser.
 
-- **Presets:** 46 of them, many the colour schemes people share on r/unixporn, each with
+- **Presets:** 48 of them, many the colour schemes people share on r/unixporn, each with
   matching terminal colours. **All / Dark / Light** above the list narrows it.
   - Aubergine (automatic light or dark, or either one fixed)
   - Cherry Blossom pairs petal pink with mulberry and leaf green. Pink Moon Jelly mixes
@@ -118,6 +118,8 @@ See [Security](security.md) before using terminals on a network you share.
     pairs electric chartreuse with violet ink.
   - Tidal Glass uses seafoam and deep teal. Cobalt Coast pairs a
     marine-blue sidebar with a sunlit apricot selection.
+  - Deep Ocean pairs midnight blue with bright cyan. Forest Canopy pairs pine green
+    with fern accents and warm amber code.
   - Amethyst and Ultraviolet, two dark purples
   - Dracula, Dracula Midnight (darker), Dracula Soft (lower contrast), Dracula Pink and
     Dracula Light
