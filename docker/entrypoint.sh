@@ -47,7 +47,7 @@ fi
 # changed. Problems here only cost SSH: they are reported and the app starts.
 if [ -n "${CLACK_SSH_AGENT:-}" ]; then
   if [ ! -S "$CLACK_SSH_AGENT" ]; then
-    echo "clack: no SSH agent was passed in at $CLACK_SSH_AGENT; see \"SSH keys\" in the README." >&2
+    echo "clack: no SSH agent was passed in at $CLACK_SSH_AGENT; see \"SSH keys\" in docs/docker.md." >&2
   elif as_node test -w "$CLACK_SSH_AGENT"; then
     export SSH_AUTH_SOCK="$CLACK_SSH_AGENT"
   else

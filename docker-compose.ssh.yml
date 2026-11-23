@@ -5,7 +5,7 @@
 # Turned on by adding this file to the ones Docker Compose reads, in .env:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.ssh.yml
 #
-# Where the agent comes from (see "SSH keys" in the README):
+# Where the agent comes from (see "SSH keys" in docs/docker.md):
 #   - Docker Desktop and OrbStack on a Mac: nothing to set.
 #   - colima: start it with the agent forwarded (colima start --ssh-agent); nothing to set.
 #   - Linux: set CLACK_SSH_AUTH_SOCK in .env to your agent's socket.
