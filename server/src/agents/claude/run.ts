@@ -194,6 +194,8 @@ export class ClaudeRun implements AgentRun {
       permissionMode: host.mode,
       includePartialMessages: true,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
+      // clack's own skills (diagrams), from its folder: nothing is put in ~/.claude or the chat's folder.
+      plugins: [{ type: 'local', path: config.pluginDir }],
       canUseTool: this.canUseTool,
       hooks: { PreToolUse: [{ hooks: [this.autoFence] }] },
       ...(host.model ? { model: host.model } : {}),

@@ -41,7 +41,7 @@
 
 <nav class="side" aria-label={onData ? 'Files' : onNotes ? 'Notes' : 'Chats'}>
   <header>
-    <span class="brand">clack</span>
+    <span class="brand">Clack</span>
     {#if onNotes}
       <button class="compose" aria-label="New note" title="New note" onclick={() => void notes.create()}>
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">

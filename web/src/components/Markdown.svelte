@@ -1,13 +1,22 @@
 <script lang="ts">
   import { renderMarkdown } from '../lib/markdown';
+  import { mountDiagrams } from '../lib/mountDiagrams';
 
-  let { text }: { text: string } = $props();
+  // `streaming`: the text is still arriving, so diagrams wait until it is whole.
+  let { text, streaming = false }: { text: string; streaming?: boolean } = $props();
 
   const html = $derived(renderMarkdown(text));
+  let body = $state<HTMLElement>();
+
+  // ```mermaid blocks become diagrams.
+  $effect(() => {
+    void html;
+    if (body && html.includes('language-mermaid')) return mountDiagrams(body, streaming);
+  });
 </script>
 
 <!-- Sanitized in renderMarkdown before it reaches the page. -->
-<div class="md">{@html html}</div>
+<div class="md" bind:this={body}>{@html html}</div>
 
 <style>
   .md {
@@ -27,6 +36,14 @@
   .md :global(ol),
   .md :global(pre),
   .md :global(table),
+  /* A ```mermaid block, which holds a drawn diagram instead of code. */
+  .md :global(pre.diagram-host) {
+    padding: 0;
+    border: 0;
+    background: none;
+    overflow: visible;
+  }
+
   .md :global(blockquote) {
     margin: 0 0 0.75em;
   }

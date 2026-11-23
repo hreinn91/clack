@@ -60,6 +60,8 @@ export const config = {
   outsideFolders: !/^(0|off|false|no)$/i.test(process.env.CLACK_OUTSIDE_FOLDERS?.trim() ?? ''),
   /** Model and effort choices, remembered per chat. */
   prefsFile: join(dataDir, 'preferences.json'),
+  /** Skills that come with clack, handed to each agent: a Claude Code plugin whose skills folder Codex reads too. */
+  pluginDir: resolve(here, '../plugin'),
   /** What was typed in each chat's message box and not sent yet. */
   draftsFile: join(dataDir, 'drafts.json'),
   /**

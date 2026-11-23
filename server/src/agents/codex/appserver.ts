@@ -116,8 +116,12 @@ class AppServer {
         clientInfo: { name: 'clack', title: 'clack', version: '1' },
         capabilities: { experimentalApi: true, requestAttestation: false },
       })
-        .then(() => {
+        .then(async () => {
           this.send({ method: 'initialized' });
+          // clack's own skills (diagrams), read from its folder rather than copied into ~/.codex.
+          await this.call('skills/extraRoots/set', { extraRoots: [join(config.pluginDir, 'skills')] }).catch((err: unknown) => {
+            console.warn('clack: Codex did not take clack\'s skills:', err instanceof Error ? err.message : err);
+          });
           this.failures = 0;
           resolve();
         })

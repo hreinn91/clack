@@ -1,5 +1,6 @@
 <script lang="ts">
   import { renderMarkdown, toggleTask } from '../lib/markdown';
+  import { mountDiagrams } from '../lib/mountDiagrams';
 
   // A note as it reads: its markdown rendered, code coloured in the theme's
   // code colours, and its task boxes clickable, which ticks them in the text.
@@ -28,6 +29,12 @@
       }
     });
     return () => (stale = true);
+  });
+
+  // ```mermaid blocks become diagrams.
+  $effect(() => {
+    void html;
+    if (body && html.includes('language-mermaid')) return mountDiagrams(body);
   });
 
   function onclick(event: MouseEvent) {
@@ -67,6 +74,14 @@
   .doc :global(ol),
   .doc :global(pre),
   .doc :global(table),
+  .doc :global(pre.diagram-host) {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    overflow: visible;
+  }
+
   .doc :global(blockquote) {
     margin: 0 0 0.9em;
   }

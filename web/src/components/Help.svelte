@@ -191,6 +191,11 @@
           Questions the agent has show up as cards in the chat.
         </li>
         <li>
+          <strong>Diagrams.</strong> Ask for a diagram or a chart and it is drawn in the reply (from a
+          <code>mermaid</code> code block). Click it to zoom; point at it to see its code or download it as PNG or SVG.
+          On a phone, press and hold the zoomed diagram to copy or save it.
+        </li>
+        <li>
           <strong>Attaching files.</strong> Use the <strong>+</strong> button, drop files on the message box, or paste a picture
           into it. They are saved in the chat's folder.
         </li>

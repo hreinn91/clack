@@ -69,6 +69,8 @@ async function measure(cwd: string): Promise<Capabilities> {
     options: {
       cwd,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
+      // clack's own skills (diagrams), from its folder: nothing is put in ~/.claude or the chat's folder.
+      plugins: [{ type: 'local', path: config.pluginDir }],
       ...(config.claudePath ? { pathToClaudeCodeExecutable: config.claudePath } : {}),
     },
   });

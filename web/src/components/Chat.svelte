@@ -246,7 +246,7 @@
 {#snippet liveOutput()}
   {#each app.drafts as draft (draft.id)}
     {#if draft.kind === 'text'}
-      <div class="streaming"><Markdown text={draft.text} /></div>
+      <div class="streaming"><Markdown text={draft.text} streaming /></div>
     {:else if draft.kind === 'thinking'}
       <p class="working"><span class="spinner"></span> Thinking…</p>
     {:else}

@@ -21,7 +21,7 @@
 
 <div class="wrap">
   <form onsubmit={submit}>
-    <h1>clack</h1>
+    <h1>Clack</h1>
     <p>Enter the access token the server printed when it started.</p>
     <!-- A hidden username lets password managers save the token under a name. -->
     <input type="text" name="username" value="clack" autocomplete="username" hidden />
