@@ -311,6 +311,8 @@ export type ClientMessage =
   | { t: 'close' }
   | { t: 'prompt'; sessionId: string; text: string }
   | { t: 'interrupt'; sessionId: string }
+  /** The open chat is on screen: its finished reply has been seen. */
+  | { t: 'seen'; sessionId: string }
   | {
       t: 'permission';
       sessionId: string;
@@ -340,6 +342,14 @@ export type SessionSummary = {
   archived: boolean;
   /** The folder it works in no longer exists. Shown with the archived chats until the folder is back. */
   missing: boolean;
+  /**
+   * What the chat's agent is up to, for the Active list: writing a reply,
+   * waiting for an answer to a permission card or question, or done with a reply
+   * nobody has opened yet. Absent when there is nothing to show.
+   */
+  activity?: 'working' | 'waiting' | 'done';
+  /** When the reply was asked for (working, waiting) or finished (done). */
+  activityAt?: number;
 };
 
 /**

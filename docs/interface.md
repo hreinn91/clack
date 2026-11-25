@@ -21,9 +21,11 @@ The window has four parts:
   other picture the browser can open, cropped to the middle square and shrunk to 256
   pixels before it is sent. It then stands in for your initials everywhere, including next
   to your messages. **Change picture…** and **Remove picture** are there once you have one.
-- **Sidebar:** **Chats** shows the folders under `data/sessions` as a tree, with each
-  folder's chats listed under it. The dot before a chat is lit and pulsing while Claude
-  is working in it. See [Managing chats](chats.md#managing-chats). On the Notes page it shows
+- **Sidebar:** **Active** lists the chats whose agent is working, waiting for you, or
+  done with a reply you have not read yet (see [The Active list](chats.md#the-active-list)).
+  **Chats** below it shows the folders under `data/sessions` as a tree, with each
+  folder's chats listed under it. The dot before a chat pulses while its agent is
+  working. See [Managing chats](chats.md#managing-chats). On the Notes page it shows
   the notes instead, and on the Data page the data directory.
 - **Message box:** what you type stays with its chat. Open another chat and that one's
   own unsent message (and attached files) shows instead; come back and yours is still

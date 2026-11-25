@@ -103,6 +103,9 @@ export function registerWs(app: FastifyInstance): void {
         case 'interrupt':
           await target(msg.sessionId).interrupt();
           break;
+        case 'seen':
+          target(msg.sessionId).seen();
+          break;
         case 'permission':
           target(msg.sessionId).resolvePermission(msg.id, msg.decision, msg.answers);
           break;

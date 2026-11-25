@@ -198,6 +198,13 @@
     observer.observe(content);
     return () => observer.disconnect();
   });
+
+  // A finished reply counts as read once its chat is open and on screen: it then leaves the Active list.
+  $effect(() => {
+    const id = app.sessionId;
+    if (!id || !app.visible || app.meta?.sessionId !== id) return;
+    if (app.sessions.find((chat) => chat.sessionId === id)?.activity === 'done') app.seen(id);
+  });
 </script>
 
 <header class="pane-bar">

@@ -1308,6 +1308,8 @@ function variables(c: Colors, dark: boolean, ansi: string[] = []): Record<string
     '--chrome-active': c.active,
     '--chrome-active-text': c.activeText,
     '--presence': c.ok,
+    // Something waiting for you (a permission card in a chat): the theme's own yellow, darker on a light sidebar.
+    '--attention': chromeLight ? mix(ansi[3] ?? '#d99a1e', '#000000', 0.3) : (ansi[3] ?? '#e8a33d'),
     '--bg': c.bg,
     '--surface': c.surface,
     '--sunken': mix(c.bg, '#000000', dark ? 0.25 : 0.045),

@@ -113,6 +113,8 @@ class AppState {
   avatar = $state<number | undefined>();
   /** Typed into the search field: narrows the chats and folders in the sidebar. */
   search = $state('');
+  /** Whether the page is on screen (not a hidden tab or a locked phone): a reply only counts as read then. */
+  visible = $state(document.visibilityState === 'visible');
   /** How much of each provider's plan limits is used, by provider. Empty until the first answer. */
   usages = $state<Partial<Record<Provider, PlanUsage>>>({});
   /** True while the figures are being asked for. */
@@ -267,6 +269,7 @@ class AppState {
     window.addEventListener('online', () => this.#wake());
     // A phone drops the socket while its screen is off: reconnect as soon as it is back.
     document.addEventListener('visibilitychange', () => {
+      this.visible = document.visibilityState === 'visible';
       if (document.visibilityState !== 'visible') return;
       this.#wake();
       // Folders can be deleted or made outside clack (a terminal, the file manager): look again on coming back.
@@ -594,6 +597,11 @@ class AppState {
     } catch (err) {
       this.#fail(err);
     }
+  }
+
+  /** The open chat is on screen: its finished reply leaves the Active list. */
+  seen(sessionId: string): void {
+    if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(JSON.stringify({ t: 'seen', sessionId } satisfies ClientMessage));
   }
 
   /** A model and effort for the open chat; a model of the other provider moves the chat over to it. */

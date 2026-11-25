@@ -41,6 +41,19 @@
   let opened = $state(savedOpen());
   let showArchived = $state(false);
 
+  const ACTIVE_KEY = 'clack.activeOpen';
+  /** The Active list is unfolded unless it was folded shut in this browser. */
+  let showActive = $state(localStorage.getItem(ACTIVE_KEY) !== 'false');
+
+  function toggleActive() {
+    showActive = !showActive;
+    try {
+      localStorage.setItem(ACTIVE_KEY, String(showActive));
+    } catch {
+      // Not remembered this time.
+    }
+  }
+
   function remember() {
     try {
       localStorage.setItem(OPEN_KEY, JSON.stringify(opened));
@@ -147,6 +160,27 @@
   function toggle(node: Node) {
     opened[node.path] = !isOpen(node);
     remember();
+  }
+
+  /** Order in the Active list: what needs you first, then replies to read, then what is still being written. */
+  const ACTIVITY_ORDER = { waiting: 0, done: 1, working: 2 } as const;
+  /** Chats whose agent is writing a reply, waiting for you, or done with one you have not opened yet. */
+  const active = $derived(
+    app.sessions
+      .filter((chat) => chat.activity && (!query || `${chat.title} ${chat.folder}`.toLowerCase().includes(query)))
+      .sort((a, b) => ACTIVITY_ORDER[a.activity!] - ACTIVITY_ORDER[b.activity!] || (b.activityAt ?? 0) - (a.activityAt ?? 0)),
+  );
+  const unreadCount = $derived(active.filter((chat) => chat.activity === 'done').length);
+  const waitingCount = $derived(active.filter((chat) => chat.activity === 'waiting').length);
+
+  const ACTIVITY_LABEL = { working: 'Working', waiting: 'Needs you', done: 'Done' } as const;
+
+  /** How long ago, said in a tooltip: "for 3 min", "2 h ago". */
+  function since(chat: SessionSummary): string {
+    if (!chat.activityAt) return '';
+    const when = ago(chat.activityAt);
+    if (chat.activity === 'done') return when === 'now' ? 'Finished just now' : `Finished ${when} ago`;
+    return when === 'now' ? 'Started just now' : `Started ${when} ago`;
   }
 
   const archived = $derived(
@@ -270,9 +304,15 @@
       aria-current={chat.sessionId === app.sessionId ? 'page' : undefined}
       title={`${chat.title}\nRuns on ${providerName(chat.provider)}${chat.model ? ` · ${modelName(chat.model)}` : ''}\nFolder: ${chat.folder}${chat.missing ? ' (deleted)' : ''} · ${ago(chat.lastModified)}`}
     >
-      <span class="dot" class:busy={chat.running} aria-label={chat.running ? 'Working' : undefined}></span>
+      <span
+        class="dot"
+        class:busy={chat.activity === 'working'}
+        class:waiting={chat.activity === 'waiting'}
+        class:done={chat.activity === 'done'}
+        aria-label={chat.activity ? ACTIVITY_LABEL[chat.activity] : undefined}
+      ></span>
       <span class="agent {chat.provider}" aria-label={`On ${providerName(chat.provider)}`}><ProviderMark provider={chat.provider} size={11} /></span>
-      <span class="label">{chat.title}</span>
+      <span class="label" class:unread={chat.activity === 'done'}>{chat.title}</span>
       {#if depth === null}
         <span class="where" class:gone={chat.missing}>{chat.folder}</span>
         {#if chat.missing}<span class="tag" title="This chat's folder was deleted">deleted</span>{/if}
@@ -376,6 +416,51 @@
     {/if}
   </li>
 {/snippet}
+
+<!-- Always there, so it is in the same place to look; grey and empty while nothing is going on. -->
+<section class="activity" class:idle={!active.length}>
+  <button class="heading fold" aria-expanded={showActive || query !== ''} onclick={toggleActive}>
+    <svg class="chevron" class:open={showActive || query !== ''} width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+      <path d="M3 1.5 7.5 5 3 8.5z" />
+    </svg>
+    <h2>Active</h2>
+    {#if active.length}<span class="count">{active.length}</span>{/if}
+    <span class="sums">
+      {#if waitingCount}<span class="sum waiting" title="Waiting for your answer">{waitingCount} need{waitingCount === 1 ? 's' : ''} you</span>{/if}
+      {#if unreadCount}<span class="sum done" title="Finished replies you have not opened yet">{unreadCount} done</span>{/if}
+    </span>
+  </button>
+  {#if showActive || query !== ''}
+    <ul>
+      {#each active as chat (chat.sessionId)}
+        <li class="chat flat activity-row" class:active={chat.sessionId === app.sessionId}>
+          <a
+            href={`#/s/${chat.sessionId}`}
+            aria-current={chat.sessionId === app.sessionId ? 'page' : undefined}
+            title={`${chat.title}\n${ACTIVITY_LABEL[chat.activity!]}${since(chat) ? ` · ${since(chat)}` : ''}\nFolder: ${chat.folder}`}
+          >
+            <span class="status {chat.activity}" aria-hidden="true">
+              {#if chat.activity === 'done'}
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2.5 6.5l2.25 2.25L9.5 3.75" />
+                </svg>
+              {:else if chat.activity === 'waiting'}
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="5" y="1.75" width="2" height="5.5" rx="1" /><circle cx="6" cy="9.5" r="1.15" /></svg>
+              {:else}
+                <span class="spin"></span>
+              {/if}
+            </span>
+            <span class="agent {chat.provider}" aria-label={`On ${providerName(chat.provider)}`}><ProviderMark provider={chat.provider} size={11} /></span>
+            <span class="label" class:unread={chat.activity === 'done'}>{chat.title}</span>
+            <span class="state {chat.activity}">{ACTIVITY_LABEL[chat.activity!]}</span>
+          </a>
+        </li>
+      {:else}
+        <li class="none">{query ? 'Nothing active matches.' : 'No chats are working right now'}</li>
+      {/each}
+    </ul>
+  {/if}
+</section>
 
 <section>
   <div class="heading">
@@ -852,6 +937,113 @@
     animation: pulse 1.2s ease-in-out infinite;
   }
 
+  /* The Active list: what each agent is up to, at a glance. Greyed out while nothing is. */
+  .activity.idle h2 {
+    color: var(--chrome-muted);
+  }
+
+  .activity .none {
+    padding-left: 30px;
+  }
+
+  .sums {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .sum {
+    padding: 0 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 17px;
+    white-space: nowrap;
+  }
+
+  .sum.done {
+    background: color-mix(in srgb, var(--presence) 22%, transparent);
+    color: var(--chrome-strong);
+  }
+
+  .sum.waiting {
+    background: color-mix(in srgb, var(--attention) 28%, transparent);
+    color: var(--chrome-strong);
+  }
+
+  .status {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 14px;
+    height: 14px;
+  }
+
+  .status.done {
+    border-radius: 50%;
+    background: var(--presence);
+    color: #fff;
+  }
+
+  .status.waiting {
+    border-radius: 50%;
+    background: var(--attention);
+    color: #1d1c1d;
+  }
+
+  .spin {
+    width: 11px;
+    height: 11px;
+    border: 2px solid color-mix(in srgb, var(--presence) 30%, transparent);
+    border-top-color: var(--presence);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+
+  .state {
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    opacity: 0.75;
+  }
+
+  .state.done {
+    color: var(--presence);
+    opacity: 1;
+  }
+
+  .state.waiting {
+    color: var(--attention);
+    opacity: 1;
+  }
+
+  .chat.active .state {
+    color: inherit;
+  }
+
+  /* A reply nobody has opened yet stands out, as unread mail does. */
+  .label.unread {
+    color: var(--chrome-strong);
+    font-weight: 800;
+  }
+
+  .chat.active .label.unread {
+    color: inherit;
+  }
+
+  .dot.done {
+    border-color: var(--presence);
+    background: var(--presence);
+    opacity: 1;
+  }
+
+  .dot.waiting {
+    border-color: var(--attention);
+    background: var(--attention);
+    opacity: 1;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
   @keyframes pulse {
     50% {
       opacity: 0.35;
@@ -1002,7 +1194,9 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .dot.busy {
+    .dot.busy,
+    .dot.waiting,
+    .spin {
       animation: none;
     }
 

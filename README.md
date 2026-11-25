@@ -10,6 +10,7 @@ from your browser, phone or desktop app while the agents run on your server.
 - Ask Claude to sketch an approach, then hand the same chat to Codex. [Agents and switching](docs/agents.md)
 - Group chats by project, attach screenshots and review Git diffs file by file. [Chats and folders](docs/chats.md)
 - Follow a live plan from your phone, answer questions and approve the next step. [Plans and progress](docs/chats.md#context-background-work-plans-and-changes)
+- Set several chats going and see which are working, which need you and which have a reply to read. [The Active list](docs/chats.md#the-active-list)
 - Keep Markdown notes beside your chats and export them individually or together. [Notes](docs/notes.md)
 - Zoom into Mermaid diagrams in replies and save them as PNG or SVG. [Diagrams](docs/diagrams.md)
 - Check usage limits, inspect available tools and review the activity log. [Usage and tools](docs/usage-and-tools.md)

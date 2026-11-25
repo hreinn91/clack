@@ -64,6 +64,8 @@ export const config = {
   pluginDir: resolve(here, '../plugin'),
   /** What was typed in each chat's message box and not sent yet. */
   draftsFile: join(dataDir, 'drafts.json'),
+  /** Chats with a finished reply nobody has opened yet. */
+  unreadFile: join(dataDir, 'unread.json'),
   /**
    * Codex as a second agent. Listed unless off; where the codex command is not
    * installed it shows as not available. (auto and on mean the same.)

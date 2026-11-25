@@ -37,6 +37,7 @@ import { gitFileDiff, gitStatus } from './git.ts';
 import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs, saveSessionPrefs } from './prefs.ts';
 import { forgetDraft } from './drafts.ts';
+import { markFinished, markSeen, unreadSince } from './unread.ts';
 import type { Prefs } from './prefs.ts';
 
 export type Listener = (msg: ServerMessage) => void;
@@ -92,6 +93,8 @@ export class LiveSession implements RunHost {
   /** How full the context window was when the last turn ended. */
   context: ContextUsage | undefined;
   lastActivity = Date.now();
+  /** When the reply being written was asked for. */
+  turnStartedAt = Date.now();
 
   /** The providers' conversations this chat is made of, oldest first. Empty until the agent has saved anything. */
   private segments: Segment[];
@@ -551,10 +554,14 @@ export class LiveSession implements RunHost {
   ask(request: PermissionRequest): void {
     this.requests.set(request.id, request);
     this.emit({ t: 'permission', request });
+    // The Active list shows the chat as waiting for you.
+    if (this.requests.size === 1) bus.emit('sessions_changed');
   }
 
   answered(id: string): void {
-    if (this.requests.delete(id)) this.emit({ t: 'permission_done', id });
+    if (!this.requests.delete(id)) return;
+    this.emit({ t: 'permission_done', id });
+    if (this.requests.size === 0) bus.emit('sessions_changed');
   }
 
   notice(level: 'info' | 'error', text: string): void {
@@ -595,8 +602,20 @@ export class LiveSession implements RunHost {
 
   private setState(state: SessionState): void {
     if (this.state === state) return;
+    const was = this.state;
     this.state = state;
+    if (state === 'running') this.turnStartedAt = Date.now();
+    // A reply is done (or stopped, or failed): it waits in the Active list until someone opens the chat.
+    if (was === 'running' && state === 'idle') {
+      markFinished(this.sessionId);
+      bus.emit('sessions_changed');
+    }
     this.emitMeta();
+  }
+
+  /** The chat is on someone's screen: its finished reply has been seen. */
+  seen(): void {
+    if (this.state !== 'running' && markSeen(this.sessionId)) bus.emit('sessions_changed');
   }
 }
 
@@ -769,6 +788,7 @@ export async function deleteChat(sessionId: string): Promise<void> {
   forgetSession(sessionId);
   forgetChat(sessionId);
   forgetDraft(sessionId);
+  markSeen(sessionId);
   bus.emit('sessions_changed');
 }
 
@@ -833,6 +853,7 @@ export async function listSummaries(): Promise<SessionSummary[]> {
       lastModified: stored.lastModified,
       running: open?.state === 'running',
       archived: stored.archived,
+      ...activityOf(chatId, open),
     });
   }
   // A chat that switched agent, whose latest part its provider does not list (or not yet): from clack's own record.
@@ -853,6 +874,7 @@ export async function listSummaries(): Promise<SessionSummary[]> {
       lastModified: open?.lastActivity ?? last.startedAt,
       running: open?.state === 'running',
       archived: false,
+      ...activityOf(chatId, open),
     });
   }
   // A brand-new chat is not on disk until its agent has answered once.
@@ -867,9 +889,17 @@ export async function listSummaries(): Promise<SessionSummary[]> {
       running: session.state === 'running',
       archived: false,
       missing: !isFolder(session.cwd),
+      ...activityOf(session.sessionId, session),
     });
   }
   return summaries.sort((a, b) => b.lastModified - a.lastModified).slice(0, 200);
+}
+
+/** What a chat's agent is up to, for the Active list in the sidebar. */
+function activityOf(chatId: string, open: LiveSession | undefined): Pick<SessionSummary, 'activity' | 'activityAt'> {
+  if (open?.state === 'running') return { activity: open.hasPending ? 'waiting' : 'working', activityAt: open.turnStartedAt };
+  const at = unreadSince(chatId);
+  return at === undefined ? {} : { activity: 'done', activityAt: at };
 }
 
 /** Frees idle agent processes and forgets sessions nobody is looking at. */

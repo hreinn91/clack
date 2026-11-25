@@ -22,6 +22,7 @@ data/
   chats.json              chats that ran on Codex or switched agent: which conversations each is made of
   avatar.webp             your picture, if you uploaded one (or avatar.png / avatar.jpg)
   drafts.json             what was typed in each chat's message box and not sent yet
+  unread.json             chats with a finished reply nobody has opened yet
   notes/
     Project ideas.md      a note
     Project ideas/        the notes inside it
@@ -68,6 +69,30 @@ on the host, mount it into the container in `docker-compose.yml` (under `volumes
 it from there.
 
 See [Security](security.md) for what this limit does and does not guarantee.
+
+## The Active list
+
+Above **Chats**, the **Active** list shows every chat whose agent is busy or has
+something for you, so you can set several going and see at a glance which ones are
+done:
+
+- **Working** (a spinning ring): the agent is writing a reply.
+- **Needs you** (an amber mark): it is waiting for you to answer a permission card or a
+  question. These come first.
+- **Done** (a green tick, and the title in bold): the reply is finished, or stopped or
+  failed, and you have not opened the chat since.
+
+Click a chat to open it. A finished reply counts as read once its chat is open and on
+screen, and the chat then leaves the list; a chat you are watching when it finishes
+leaves it straight away. The heading counts what is there, and says how many need you
+and how many are done even when the list is folded shut (click the heading to fold
+it; the browser remembers). The search field narrows it like the rest of the sidebar.
+While nothing is going on the list stays where it is, greyed out, and says so.
+
+The same signs show in the tree: the dot before a chat pulses green while it works and
+amber while it waits for you, and is filled green with the title in bold while a reply
+is unread. Which replies are unread is kept on the server (`data/unread.json`), so
+opening a chat on your phone clears it on the laptop too, and a restart keeps the list.
 
 ## Managing chats
 
