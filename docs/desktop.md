@@ -31,6 +31,10 @@ elsewhere it shows the usual sign-in page once.
 server, **Open in Browser** (Cmd/Ctrl+Shift+O) opens the same server in your browser,
 and **Reload** (Cmd/Ctrl+R) reloads the page.
 
+**Zoom.** Cmd/Ctrl and **+** (or **=**) zooms in, Cmd/Ctrl and **-** zooms out, and
+Cmd/Ctrl+0 goes back to actual size, in steps from 50% to 300% as in a browser. The same
+three are in the **View** menu. The zoom is remembered for next time.
+
 **Differences from a browser tab:**
 
 - Links in replies open in your browser. Pictures from the server open in a window of

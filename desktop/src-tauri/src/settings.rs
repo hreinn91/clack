@@ -17,6 +17,8 @@ pub struct Settings {
     pub folder: Option<String>,
     /// Start the server from `folder` by itself when nothing answers at a local address.
     pub auto_start: bool,
+    /// How much the page is zoomed: 1 is actual size.
+    pub zoom: f64,
 }
 
 impl Default for Settings {
@@ -25,6 +27,7 @@ impl Default for Settings {
             server: DEFAULT_SERVER.to_string(),
             folder: None,
             auto_start: false,
+            zoom: 1.0,
         }
     }
 }

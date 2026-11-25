@@ -34,6 +34,8 @@ struct AppState {
     /// Downloads done, for "Show" to find.
     downloaded: Mutex<Vec<PathBuf>>,
     local: server::Local,
+    /// When the zoom last changed: a key press that reaches both the menu and the page zooms once.
+    zoomed_at: Mutex<Option<std::time::Instant>>,
 }
 
 impl AppState {
@@ -179,6 +181,51 @@ async fn set_auto_start(state: State<'_, AppState>, on: bool) -> Result<(), Stri
 
 // ---- the window ------------------------------------------------------------------------------
 
+/// The zoom levels a browser steps through.
+const ZOOM_LEVELS: [f64; 13] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+
+#[derive(Clone, Copy)]
+enum Zoom {
+    In,
+    Out,
+    Reset,
+}
+
+/// Zooms the page a step in or out, or back to actual size, and remembers it for next time.
+fn zoom(app: &AppHandle, step: Zoom) {
+    let state = app.state::<AppState>();
+    {
+        let mut last = state.zoomed_at.lock().unwrap();
+        if last.is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(120)) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+    }
+    let current = state.settings().zoom;
+    let next = match step {
+        Zoom::Reset => 1.0,
+        Zoom::In => ZOOM_LEVELS.iter().copied().find(|&level| level > current + 0.001).unwrap_or(current),
+        Zoom::Out => ZOOM_LEVELS.iter().rev().copied().find(|&level| level < current - 0.001).unwrap_or(current),
+    };
+    if let Ok(window) = main_window(app) {
+        let _ = window.set_zoom(next);
+    }
+    let _ = state.update(|s| s.zoom = next);
+}
+
+/// Cmd (Ctrl elsewhere) with + or =, - and 0 zoom, in every page the window shows,
+/// as in a browser. The page asks the app through a link of the app's own, since a
+/// server's pages cannot call it directly. The keys also work through the View menu.
+const ZOOM_KEYS_SCRIPT: &str = r#"window.addEventListener('keydown', (event) => {
+  const mod = /Mac/.test(navigator.platform) ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (!mod || event.altKey) return;
+  const step = event.key === '+' || event.key === '=' ? 'in' : event.key === '-' || event.key === '_' ? 'out' : event.key === '0' ? 'reset' : '';
+  if (!step) return;
+  event.preventDefault();
+  event.stopPropagation();
+  location.href = 'clack-desktop://zoom/' + step;
+}, true);"#;
+
 /// Back to the launcher, to pick another server.
 fn show_launcher(app: &AppHandle) {
     let state = app.state::<AppState>();
@@ -242,13 +289,24 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .title("Clack")
         .inner_size(1280.0, 820.0)
         .min_inner_size(640.0, 480.0)
-        .zoom_hotkeys_enabled(true)
+        // The app zooms by itself (see zoom()), the same way everywhere; the
+        // system's own hotkeys exist only on Windows and would zoom twice there.
+        .zoom_hotkeys_enabled(false)
+        .initialization_script(ZOOM_KEYS_SCRIPT)
         // Pages stay inside the server they belong to; links elsewhere open in the browser.
         .on_navigation(move |url| {
             let app = &on_navigation;
             let state = app.state::<AppState>();
             if url.scheme() == OWN_SCHEME {
                 let index = url.path().trim_start_matches('/').parse::<usize>().ok();
+                if url.host_str() == Some("zoom") {
+                    match url.path().trim_start_matches('/') {
+                        "in" => zoom(app, Zoom::In),
+                        "out" => zoom(app, Zoom::Out),
+                        "reset" => zoom(app, Zoom::Reset),
+                        _ => {}
+                    }
+                }
                 if url.host_str() == Some("reveal") {
                     if let Some(path) = index.and_then(|i| state.downloaded.lock().unwrap().get(i).cloned()) {
                         let _ = app.opener().reveal_item_in_dir(path);
@@ -321,8 +379,38 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .build()
 }
 
+/// A zoom item, showing its key. On a Mac the menu takes the key itself; elsewhere
+/// the page's own key handler does (a window menu there may not see keys the web
+/// view has), so the menu only shows the key.
+fn zoom_item(app: &AppHandle, id: &str, label: &str, key: &str) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+    let builder = MenuItemBuilder::with_id(id, label);
+    if cfg!(target_os = "macos") {
+        builder.accelerator(format!("Cmd+{key}")).build(app)
+    } else if cfg!(windows) {
+        // Windows menus show what follows a tab as the item's key.
+        MenuItemBuilder::with_id(id, format!("{label}\tCtrl+{}", if key == "=" { "+" } else { key })).build(app)
+    } else {
+        builder.build(app)
+    }
+}
+
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
+    let zoom_in = zoom_item(app, "zoom-in", "Zoom In", "=")?;
+    let zoom_out = zoom_item(app, "zoom-out", "Zoom Out", "-")?;
+    let actual = zoom_item(app, "zoom-reset", "Actual Size", "0")?;
+    // Into the View menu, where browsers keep them; a menu bar without one gets one.
+    let view = menu.items()?.into_iter().find_map(|item| item.as_submenu().filter(|sub| sub.text().is_ok_and(|t| t == "View")).cloned());
+    match view {
+        Some(view) => {
+            view.prepend_items(&[&actual, &zoom_in, &zoom_out, &PredefinedMenuItem::separator(app)?])?;
+        }
+        None => {
+            let view = SubmenuBuilder::new(app, "View").item(&actual).item(&zoom_in).item(&zoom_out).build()?;
+            let at = menu.items()?.len().saturating_sub(1);
+            menu.insert(&view, at)?;
+        }
+    }
     let server_menu = SubmenuBuilder::new(app, "Server")
         .item(&MenuItemBuilder::with_id("change-server", "Change Server…").accelerator("CmdOrCtrl+Shift+L").build(app)?)
         .item(&MenuItemBuilder::with_id("open-browser", "Open in Browser").accelerator("CmdOrCtrl+Shift+O").build(app)?)
@@ -369,6 +457,7 @@ pub fn run() {
                 downloading: Mutex::new(HashMap::new()),
                 downloaded: Mutex::new(Vec::new()),
                 local: server::Local::default(),
+                zoomed_at: Mutex::new(None),
             });
             let handle = app.handle().clone();
             app.set_menu(build_menu(&handle)?)?;
@@ -379,6 +468,9 @@ pub fn run() {
                     let url = current.map(|u| u.to_string()).unwrap_or_else(|| app.state::<AppState>().settings().server);
                     let _ = app.opener().open_url(url, None::<&str>);
                 }
+                "zoom-in" => zoom(app, Zoom::In),
+                "zoom-out" => zoom(app, Zoom::Out),
+                "zoom-reset" => zoom(app, Zoom::Reset),
                 "reload" => {
                     if let Ok(window) = main_window(app) {
                         let _ = window.eval("location.reload()");
@@ -386,7 +478,11 @@ pub fn run() {
                 }
                 _ => {}
             });
-            build_window(&handle)?;
+            let window = build_window(&handle)?;
+            let remembered = handle.state::<AppState>().settings().zoom;
+            if (remembered - 1.0).abs() > 0.001 {
+                let _ = window.set_zoom(remembered);
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
