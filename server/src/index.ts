@@ -46,11 +46,18 @@ await app.register(fastifyWebsocket, { options: { maxPayload: 1024 * 1024 } });
 // shell itself is public: it holds no data until the browser has signed in.
 const OPEN_ROUTES = new Set(['/api/login', '/api/logout', '/api/me']);
 
+// Decided by the route the request was matched to, never by how its URL is
+// spelled: the router also accepts an absolute URL ("GET http://host/api/…")
+// and percent-encoded paths ("/%61pi/…"), which a check on the raw URL misses.
+// Everything is closed unless it is the web app's own files or an open route.
+const STATIC_ROUTES = new Set(['/', '/*']);
+
 app.addHook('onRequest', async (req, reply) => {
-  const path = req.url.split('?')[0]!;
-  if (!path.startsWith('/api/') && path !== '/ws' && !path.startsWith('/ws/')) return;
+  const route = req.routeOptions.url;
+  // No route matched: the 404 reply holds nothing.
+  if (route === undefined || STATIC_ROUTES.has(route)) return;
   if (!sameOrigin(req)) return reply.code(403).send({ error: 'Cross-origin request refused' });
-  if (OPEN_ROUTES.has(path)) return;
+  if (OPEN_ROUTES.has(route)) return;
   if (!isAuthed(req)) return reply.code(401).send({ error: 'Not signed in' });
 });
 
