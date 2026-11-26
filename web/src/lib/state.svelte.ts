@@ -44,6 +44,7 @@ export type Route =
   | { name: 'help' }
   | { name: 'usage' }
   | { name: 'tools' }
+  | { name: 'stats' }
   /** A note, by its path; '' for the notes overview. */
   | { name: 'notes'; path: string };
 
@@ -57,6 +58,7 @@ function parseRoute(): Route {
   if (location.hash === '#/help') return { name: 'help' };
   if (location.hash === '#/usage') return { name: 'usage' };
   if (location.hash === '#/tools') return { name: 'tools' };
+  if (location.hash === '#/stats') return { name: 'stats' };
   const note = location.hash.match(/^#\/notes(?:\/(.*))?$/);
   if (note) {
     const parts = (note[1] ?? '').split('/').map(safeDecode);

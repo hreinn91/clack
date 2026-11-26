@@ -191,6 +191,11 @@
           Questions the agent has show up as cards in the chat.
         </li>
         <li>
+          <strong>Stats.</strong> <a href="#/stats">Stats</a> shows how you have used Claude and Codex over time: tokens, cost at
+          API prices, models, projects, tools and when you work. It reads the agents' own records on the server, numbers only,
+          and uses no tokens.
+        </li>
+        <li>
           <strong>Diagrams.</strong> Ask for a diagram or a chart and it is drawn in the reply (from a
           <code>mermaid</code> code block). Click it to zoom; point at it to see its code or download it as PNG or SVG.
           On a phone, press and hold the zoomed diagram to copy or save it.

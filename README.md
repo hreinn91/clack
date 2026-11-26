@@ -14,6 +14,7 @@ from your browser, phone or desktop app while the agents run on your server.
 - Keep Markdown notes beside your chats and export them individually or together. [Notes](docs/notes.md)
 - Zoom into Mermaid diagrams in replies and save them as PNG or SVG. [Diagrams](docs/diagrams.md)
 - Check usage limits, inspect available tools and review the activity log. [Usage and tools](docs/usage-and-tools.md)
+- See how you use the agents over time: tokens, cost, models, projects, tools and your busiest hours. [Stats](docs/stats.md)
 - Browse files, open a server terminal and choose your theme. [Interface](docs/interface.md)
 - Connect to an existing server or start one from a native window. [Desktop app](docs/desktop.md)
 
@@ -145,6 +146,7 @@ lives where, the settings, what the image holds, and using your SSH keys in it.
 | [Notes](docs/notes.md) | The notes tree, writing and preview, export |
 | [Diagrams](docs/diagrams.md) | Mermaid diagrams in replies and notes, the viewer, and the diagram skill |
 | [Usage, tools and the activity log](docs/usage-and-tools.md) | Plan limits, MCP servers and skills, and the log of everything that happened |
+| [Stats](docs/stats.md) | Your use of Claude and Codex over time, where the figures come from, and what is read |
 | [Desktop app](docs/desktop.md) | The desktop app in full, and building it |
 | [Docker](docs/docker.md) | What lives where, settings, the image, SSH keys |
 | [Configuration](docs/configuration.md) | Every setting in `.env` |

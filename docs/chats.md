@@ -23,6 +23,9 @@ data/
   avatar.webp             your picture, if you uploaded one (or avatar.png / avatar.jpg)
   drafts.json             what was typed in each chat's message box and not sent yet
   unread.json             chats with a finished reply nobody has opened yet
+  stats/
+    index.json            figures read from the agents' transcripts, for Stats (numbers only)
+    turns.jsonl           how long each reply in Clack's chats took, and how it ended
   notes/
     Project ideas.md      a note
     Project ideas/        the notes inside it

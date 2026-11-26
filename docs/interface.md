@@ -15,7 +15,8 @@ The window has four parts:
   your plan's [limits](usage-and-tools.md#usage), **Tools** lists the [MCP servers, skills and
   tools](usage-and-tools.md#tools-and-skills) Claude can use, **Activity** opens
   the [activity log](usage-and-tools.md#activity-log), **Data** opens the [data page](#data-page),
-  **Theme** opens the [themes](#themes), **Help** says whether each agent is signed in on the server, how to sign in,
+  **Theme** opens the [themes](#themes), **Stats** shows how you have used the agents over
+  time ([Stats](stats.md)), **Help** says whether each agent is signed in on the server, how to sign in,
   the keyboard shortcuts and a few tips, **+** starts a chat, and your picture at the bottom shows whether the browser is connected
   and holds **Sign out**. Its menu also has **Upload a picture…**: any PNG, JPEG, WebP or
   other picture the browser can open, cropped to the middle square and shrunk to 256

@@ -17,6 +17,7 @@ import type {
   Me,
   MessageDraft,
   NoteContent,
+  StatsReport,
   NoteNode,
   ProviderModels,
   PlanUsage,
@@ -32,6 +33,7 @@ import { backend, backends, isProvider, startingProvider } from './agents/regist
 import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } from './folders.ts';
 import { logDir, recentLogs } from './log.ts';
 import { flushDrafts, listDrafts, saveDraft } from './drafts.ts';
+import { statsReport } from './stats/index.ts';
 import { createNote, deleteNote, exportNotes, listNotes, moveNote, NoteError, readNote, saveNote } from './notes.ts';
 import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, gitDiff, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
@@ -126,6 +128,22 @@ app.put('/api/drafts/:id', { bodyLimit: 1024 * 1024 }, async (req, reply) => {
     return { at: draft?.at ?? null };
   } catch (err) {
     return reply.code(400).send({ error: err instanceof Error ? err.message : 'That draft could not be saved.' });
+  }
+});
+
+// Figures from the agents' transcripts on this computer and Clack's own records. Numbers only.
+app.get('/api/stats', async (req, reply): Promise<StatsReport | undefined> => {
+  const q = req.query as { range?: string; provider?: string; scope?: string; folder?: string; tz?: string };
+  const range = q.range === '7' || q.range === '90' || q.range === 'all' ? q.range : '30';
+  const provider = isProvider(q.provider) ? q.provider : 'all';
+  const scope = q.scope === 'clack' ? 'clack' : 'all';
+  const folder = typeof q.folder === 'string' && q.folder.length < 4096 ? q.folder : undefined;
+  const timeZone = typeof q.tz === 'string' && q.tz.length < 64 ? q.tz : Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try {
+    const titles = new Map((await listSummaries()).map((chat) => [chat.sessionId, chat.title]));
+    return await statsReport({ range, provider, scope, ...(folder !== undefined ? { folder } : {}), timeZone, titles });
+  } catch (err) {
+    reply.code(500).send({ error: err instanceof Error ? err.message : 'The figures could not be worked out.' });
   }
 });
 

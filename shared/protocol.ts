@@ -489,3 +489,67 @@ export type Me = {
   /** When the person's own picture was saved; absent when they have none. */
   avatar?: number;
 };
+
+// ---- Stats ---------------------------------------------------------------------
+
+export type StatsRange = '7' | '30' | '90' | 'all';
+export type StatsScope = 'all' | 'clack';
+
+/** Tokens, split the way the agents report them. Input excludes what came from the cache. */
+export type TokenSplit = { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number };
+
+export type StatsTotals = {
+  /** Agent conversations with any activity (a chat that switched agent counts once per agent). */
+  sessions: number;
+  /** Turns asked for: messages sent to an agent. */
+  prompts: number;
+  /** All tokens, cache included. */
+  tokens: number;
+  /** Time the agents spent working (API and tools). */
+  agentMs: number;
+  toolCalls: number;
+  /** At API prices, as Claude Code reports it. Codex reports no cost. */
+  costUsd: number;
+  /** Lines the agent added and removed, as Claude Code counts them. */
+  linesAdded: number;
+  linesRemoved: number;
+  activeDays: number;
+};
+
+export type StatsReport = {
+  generatedAt: number;
+  range: { from: number; to: number; days: number };
+  sources: Record<Provider, { found: boolean; files: number; since?: number }>;
+  totals: StatsTotals;
+  /** The same figures for the period just before, to compare with. Null for "all". */
+  previous: StatsTotals | null;
+  tokens: TokenSplit;
+  streak: { current: number; longest: number };
+  /** One per day in the range, in the browser's time zone. */
+  days: { day: string; prompts: number; tokens: number; claude: number; codex: number; costUsd: number; agentMs: number }[];
+  /** The last 53 weeks, for the calendar, whatever the range. */
+  calendar: { day: string; prompts: number; tokens: number }[];
+  /** Messages by weekday (0 is Monday) and hour. */
+  weekHours: number[][];
+  models: { model: string; provider: Provider; tokens: number; replies: number; costUsd: number }[];
+  projects: { cwd: string; label: string; clack: boolean; sessions: number; prompts: number; tokens: number; agentMs: number; costUsd: number; lastActive: number }[];
+  tools: { name: string; provider: Provider; calls: number }[];
+  /** Answers to permission cards in Clack's chats. */
+  permissions: { allowed: number; always: number; declined: number };
+  topSessions: {
+    id: string;
+    provider: Provider;
+    /** The Clack chat it belongs to, when it is one. */
+    chatId?: string;
+    title?: string;
+    cwd: string;
+    label: string;
+    tokens: number;
+    prompts: number;
+    agentMs: number;
+    costUsd: number;
+    lastActive: number;
+  }[];
+  /** Clack's own record of each reply in its chats: how long it took and how it ended. */
+  turns: { count: number; stopped: number; failed: number; averageMs: number; since?: number };
+};

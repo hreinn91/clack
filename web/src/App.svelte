@@ -13,6 +13,7 @@
   import Rail from './components/Rail.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Theme from './components/Theme.svelte';
+  import Stats from './components/Stats.svelte';
   import Help from './components/Help.svelte';
   import TopBar from './components/TopBar.svelte';
   import Tools from './components/Tools.svelte';
@@ -140,6 +141,8 @@
         <Data onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'theme'}
         <Theme onmenu={() => (drawerOpen = true)} />
+      {:else if app.route.name === 'stats'}
+        <Stats onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'help'}
         <Help onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'notes'}

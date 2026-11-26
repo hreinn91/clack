@@ -41,6 +41,7 @@
       app.route.name === 'usage' ||
       app.route.name === 'tools' ||
       app.route.name === 'notes' ||
+      app.route.name === 'stats' ||
       app.route.name === 'help'
       ? app.route.name
       : 'home',
@@ -135,6 +136,16 @@
       </svg>
     </span>
     Theme
+  </a>
+
+  <a class="item" class:active={section === 'stats'} href="#/stats" aria-current={section === 'stats' ? 'page' : undefined}>
+    <span class="tile">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3.5 16.5h13" />
+        <path d="M6 13.5v-4M10 13.5v-8M14 13.5v-5.5" />
+      </svg>
+    </span>
+    Stats
   </a>
 
   <a class="item" class:active={section === 'help'} href="#/help" aria-current={section === 'help' ? 'page' : undefined}>

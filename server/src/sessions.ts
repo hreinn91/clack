@@ -38,6 +38,7 @@ import { log } from './log.ts';
 import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, savePrefs, saveSessionPrefs } from './prefs.ts';
 import { forgetDraft } from './drafts.ts';
 import { markFinished, markSeen, unreadSince } from './unread.ts';
+import { recordTurn } from './stats/turns.ts';
 import type { Prefs } from './prefs.ts';
 
 export type Listener = (msg: ServerMessage) => void;
@@ -95,6 +96,8 @@ export class LiveSession implements RunHost {
   lastActivity = Date.now();
   /** When the reply being written was asked for. */
   turnStartedAt = Date.now();
+  /** How the reply being written ended, for Stats: stopped or failed, when a notice says so. */
+  private turnOutcome: 'done' | 'stopped' | 'failed' = 'done';
 
   /** The providers' conversations this chat is made of, oldest first. Empty until the agent has saved anything. */
   private segments: Segment[];
@@ -565,6 +568,10 @@ export class LiveSession implements RunHost {
   }
 
   notice(level: 'info' | 'error', text: string): void {
+    if (this.state === 'running') {
+      if (level === 'error') this.turnOutcome = 'failed';
+      else if (text === 'Stopped.' && this.turnOutcome === 'done') this.turnOutcome = 'stopped';
+    }
     this.addItem({ kind: 'notice', id: randomUUID(), level, text, ts: Date.now() });
   }
 
@@ -604,9 +611,21 @@ export class LiveSession implements RunHost {
     if (this.state === state) return;
     const was = this.state;
     this.state = state;
-    if (state === 'running') this.turnStartedAt = Date.now();
+    if (state === 'running') {
+      this.turnStartedAt = Date.now();
+      this.turnOutcome = 'done';
+    }
     // A reply is done (or stopped, or failed): it waits in the Active list until someone opens the chat.
     if (was === 'running' && state === 'idle') {
+      recordTurn({
+        start: this.turnStartedAt,
+        end: Date.now(),
+        chat: this.sessionId,
+        provider: this.provider,
+        ...(this.activeModel ?? this.model ? { model: (this.activeModel ?? this.model)! } : {}),
+        cwd: this.cwd,
+        outcome: this.turnOutcome,
+      });
       markFinished(this.sessionId);
       bus.emit('sessions_changed');
     }
