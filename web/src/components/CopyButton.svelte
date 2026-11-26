@@ -9,8 +9,8 @@
     size = 32,
     result = $bindable(''),
   }: {
-    /** What is copied, or a function that gives it at the moment of copying. */
-    text: string | (() => string);
+    /** What is copied, or a function that gives it at the moment of copying (it may have to fetch it). */
+    text: string | (() => string | Promise<string>);
     label?: string;
     size?: number;
     /** How the last copy went, for the button's little animation; '' when it has settled again. */
@@ -22,8 +22,8 @@
 
   async function copy(event: MouseEvent) {
     const button = event.currentTarget as HTMLButtonElement;
-    const value = typeof text === 'function' ? text() : text;
     try {
+      const value = typeof text === 'function' ? await text() : text;
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(value);
       } else {

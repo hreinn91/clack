@@ -18,10 +18,11 @@
 
   const PAGES: { label: string; hash: string }[] = [
     { label: 'Notes', hash: '#/notes' },
+    { label: 'Artifacts', hash: '#/artifacts' },
     { label: 'Usage and limits', hash: '#/usage' },
     { label: 'Stats', hash: '#/stats' },
     { label: 'Tools, skills and MCP servers', hash: '#/tools' },
-    { label: 'Activity log', hash: '#/debug/log' },
+    { label: 'Logs', hash: '#/debug/log' },
     { label: 'Data and terminals', hash: '#/data' },
     { label: 'Theme', hash: '#/theme' },
   ];

@@ -61,7 +61,7 @@ Everything that happens in a chat is logged: your prompts, Claude's responses (w
 model that wrote them), tool calls and their results, permission decisions including
 requests the server refused on its own, and errors.
 
-- **In the UI:** open **Activity** in the rail, or go to `#/debug/log`. The page shows the
+- **In the UI:** open **Logs** in the rail, or go to `#/debug/log`. The page shows the
   most recent 1,000 entries, follows new ones as they arrive, and can be filtered by type
   or by text. The folder name on each entry links to that chat.
 - **On disk:** `data/logs/clack-YYYY-MM-DD.jsonl`, one JSON object per line. These files

@@ -8,6 +8,7 @@ import { getTerminal, terminalBus } from './terminal.ts';
 import { usageBus } from './agents/bus.ts';
 import { notesBus } from './notes.ts';
 import { draftsBus } from './drafts.ts';
+import { artifactsBus } from './artifacts.ts';
 import { isProvider } from './agents/registry.ts';
 
 const MAX_PROMPT_CHARS = 200_000;
@@ -36,6 +37,7 @@ export function registerWs(app: FastifyInstance): void {
     for (const socket of alive.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
   };
   notesBus.on('changed', () => broadcast({ t: 'notes_changed' }));
+  artifactsBus.on('changed', (chatId: string, artifactId: string) => broadcast({ t: 'artifacts_changed', chatId, artifactId }));
   draftsBus.on('changed', (sessionId: string, draft: MessageDraft | null, client: string) =>
     broadcast({ t: 'message_draft', sessionId, draft, client }),
   );

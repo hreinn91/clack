@@ -1,64 +1,39 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import type { GitChange, GitStatus } from '../../../shared/protocol';
+  import { SvelteSet } from 'svelte/reactivity';
+  import type { GitChange } from '../../../shared/protocol';
   import { app } from '../lib/state.svelte';
+  import { buildChangeTree, type ChangeFolder } from '../lib/gitChanges';
+  import ChangedFileRow from './ChangedFileRow.svelte';
   import FileDiff from './FileDiff.svelte';
 
-  let status = $state<GitStatus | null>(null);
-  let error = $state('');
-  let loading = $state(true);
-  let request = 0;
-  let picked = $state<GitChange>();
-  let reading = $state(false);
+  const status = $derived(app.changesStatus);
+  let reading = $state(!!app.selectedChange);
   let back = $state<HTMLButtonElement>();
   let filesButton = $state<HTMLButtonElement>();
   let fileList = $state<HTMLElement>();
 
-  const areas = [
-    ['conflict', 'In conflict'],
-    ['staged', 'Staged'],
-    ['unstaged', 'Not staged'],
-    ['untracked', 'Untracked'],
-  ] as const;
-  const letters: Record<GitChange['status'], string> = {
-    modified: 'M', added: 'A', deleted: 'D', renamed: 'R', copied: 'C',
-    'type changed': 'T', untracked: 'U', conflict: '!',
-  };
-
   const query = $derived(app.changesFilter.trim().toLowerCase());
-  const matching = $derived((status?.changes ?? []).filter(file =>
-    file.path.toLowerCase().includes(query) || file.from?.toLowerCase().includes(query)
-  ));
-  const groups = $derived(areas.map(([area, label]) => ({
-    area, label, files: matching.filter(file => file.area === area),
-  })).filter(group => group.files.length));
-  const files = $derived(groups.flatMap(group => group.files));
-  const selected = $derived(files.find(file => file.area === picked?.area && file.path === picked.path) ?? files[0]);
+  const tree = $derived(buildChangeTree(status?.changes ?? [], query));
+  const files = $derived(tree.files);
+  const selected = $derived(files.find(file => file.area === app.selectedChange?.area && file.path === app.selectedChange.path) ?? files[0]);
   const index = $derived(selected ? files.indexOf(selected) : -1);
+  const closedFolders = new SvelteSet<string>();
+  // Searching reveals matching branches. Clearing the search restores the previous folds.
+  const folded = $derived(query ? new SvelteSet<string>() : closedFolders);
 
-  async function load() {
-    const id = app.sessionId;
-    if (!id) return;
-    const current = ++request;
-    loading = true;
-    error = '';
-    try {
-      const answer = await app.loadGitStatus(id);
-      if (current === request) status = answer;
-    } catch (err) {
-      if (current === request) error = err instanceof Error ? err.message : String(err);
-    } finally {
-      if (current === request) loading = false;
-    }
+  function reveal(path: string) {
+    for (let at = path.indexOf('/'); at >= 0; at = path.indexOf('/', at + 1)) folded.delete(path.slice(0, at));
   }
 
-  $effect(() => {
-    app.meta?.gitChanges?.checkedAt;
-    void load();
-    return () => { request++; };
-  });
+  function currentRow() {
+    return fileList?.querySelector<HTMLButtonElement>('[aria-current="true"]');
+  }
 
-  onMount(() => back?.focus());
+  onMount(() => {
+    (reading && filesButton?.offsetWidth ? filesButton : back)?.focus();
+    currentRow()?.scrollIntoView({ block: 'nearest' });
+  });
 
   async function close() {
     app.closeChanges();
@@ -69,16 +44,18 @@
 
   async function showFiles() {
     reading = false;
+    if (selected) reveal(selected.path);
     await tick();
-    fileList?.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus();
+    (currentRow() ?? back)?.focus();
   }
 
   async function pick(file: GitChange, fromList = false) {
-    picked = file;
+    app.selectedChange = file;
     reading = true;
+    reveal(file.path);
     await tick();
     if (fromList && filesButton?.offsetWidth) filesButton.focus();
-    if (!fromList) fileList?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
+    if (!fromList) currentRow()?.scrollIntoView({ block: 'nearest' });
   }
 
   function handleKey(event: KeyboardEvent) {
@@ -94,12 +71,32 @@
   }
 
   const message = $derived.by(() => {
-    if (error) return error;
-    if (!status) return loading ? 'Reading changes…' : 'Git repository unavailable.';
+    if (app.changesError) return app.changesError;
+    if (!status) return app.changesLoading ? 'Reading changes…' : 'Git repository unavailable.';
     if (!status.changes.length) return 'Working tree is clean.';
     return files.length ? '' : 'No files match your filter.';
   });
 </script>
+
+{#snippet branch(folder: ChangeFolder, depth: number)}
+  <ul class="tree" style:--tree-indent={`${Math.min(depth, 5) * 12}px`}>
+    {#each folder.folders as child (child.path)}
+      {@const expanded = !folded.has(child.path)}
+      <li>
+        <button class="folder" title={child.path} aria-expanded={expanded}
+          onclick={() => expanded ? folded.add(child.path) : folded.delete(child.path)}>
+          <svg class:expanded width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m3.5 2 3 3-3 3"/></svg>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><path d="M1.75 4.25c0-.7.55-1.25 1.25-1.25h3l1.5 1.75H13c.7 0 1.25.55 1.25 1.25v5.75c0 .7-.55 1.25-1.25 1.25H3c-.7 0-1.25-.55-1.25-1.25z"/></svg>
+          <span>{child.name}</span>
+        </button>
+        {#if expanded}{@render branch(child, depth + 1)}{/if}
+      </li>
+    {/each}
+    {#each folder.files as file (`${file.area}:${file.path}`)}
+      <li><ChangedFileRow {file} selected={file === selected} onpick={(change) => pick(change, true)} /></li>
+    {/each}
+  </ul>
+{/snippet}
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <main class="review" class:reading class:collapsed={app.changesListHidden} aria-label="Review changes"
@@ -116,7 +113,7 @@
         <span class="minus">−{status.deleted}</span>
       </span>
     {/if}
-    <button class="refresh" title="Refresh changes" aria-label="Refresh changes" disabled={loading} onclick={load}>
+    <button class="refresh" title="Refresh changes" aria-label="Refresh changes" disabled={app.changesLoading} onclick={() => app.refreshChanges()}>
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16.5 3.5v3h-3"/></svg>
     </button>
   </header>
@@ -136,28 +133,8 @@
       {/if}
     </div>
     <input class="filter" type="search" aria-label="Filter changed files" placeholder="Filter changed files" bind:value={app.changesFilter} />
-    <nav bind:this={fileList} aria-label="Files by Git status">
-      {#each groups as group (group.area)}
-        <h2>{group.label} <span>{group.files.length}</span></h2>
-        {#each group.files as file (file.path)}
-          {@const cut = file.path.lastIndexOf('/') + 1}
-          <button class="file" aria-current={file === selected ? 'true' : undefined}
-            title={`${file.status}: ${file.from ? file.from + ' → ' : ''}${file.path}`}
-            onclick={() => pick(file, true)}>
-            <span class="letter" class:green={file.area === 'staged' || file.area === 'untracked'} class:red={file.status === 'deleted' || file.area === 'conflict'} aria-label={file.status}>{letters[file.status]}</span>
-            <span class="path">
-              <strong>{file.path.slice(cut)}</strong>
-              {#if file.from || cut}<small>{file.from ? `← ${file.from}` : file.path.slice(0, cut - 1)}</small>{/if}
-            </span>
-            <span class="lines">
-              {#if file.binary}binary{:else}
-                {#if file.added}<span class="plus">+{file.added}</span>{/if}
-                {#if file.deleted}<span class="minus">−{file.deleted}</span>{/if}
-              {/if}
-            </span>
-          </button>
-        {/each}
-      {/each}
+    <nav bind:this={fileList} aria-label="Changed file tree">
+      {@render branch(tree.root, 0)}
       {#if status?.truncated}<p>Showing the first {status.changes.length} entries. Use <code>git status</code> for the full list.</p>{/if}
       {#if message}<p class="list-note" role="status">{message}</p>{/if}
     </nav>
@@ -212,7 +189,7 @@
     font-weight: 600;
   }
   .back, .refresh { flex: none; }
-  .back:hover, .refresh:hover, .files-button:hover, .file:hover { background: var(--hover); }
+  .back:hover, .refresh:hover, .files-button:hover, .folder:hover { background: var(--hover); }
   .totals { margin-left: auto; display: flex; gap: 6px; font: 600 12px var(--mono); }
   .chat-title + .refresh { margin-left: auto; }
   .chat-title {
@@ -227,37 +204,33 @@
     background: var(--surface);
   }
   .summary { padding: 16px; border-bottom: 1px solid var(--border); }
-  h1, h2 { display: flex; align-items: center; gap: 7px; margin: 0; }
-  h1 { font-size: 16px; }
-  h1 span, h2 span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  h1 span { background: var(--sunken); padding: 1px 6px; border-radius: 5px; }
+  h1 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 16px; }
+  h1 span { background: var(--sunken); padding: 1px 6px; border-radius: 5px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .repo, .branch { margin-top: 5px; color: var(--muted); font: 12px var(--mono); }
   .branch { display: flex; align-items: center; gap: 5px; }
   .branch svg { flex: none; }
-  nav { min-height: 0; overflow: auto; padding: 0 8px 14px; }
-  h2 { padding: 15px 8px 5px; font-size: 12px; color: var(--muted); }
-  .file {
+  nav { min-height: 0; overflow: auto; padding: 8px 6px 14px; }
+  .tree { padding: 0; margin: 0; list-style: none; }
+  .folder {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 5px;
     width: 100%;
-    min-height: 34px;
-    padding: 6px 8px;
+    min-height: 30px;
+    padding: 4px 8px 4px calc(5px + var(--tree-indent));
     border: 0;
     border-radius: 5px;
     background: transparent;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
     text-align: left;
   }
-  .file[aria-current] { background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
-  .letter { flex: none; width: 17px; text-align: center; font: 600 12px var(--mono); color: var(--muted); }
-  .letter.green, .plus { color: var(--presence); }
-  .letter.red, .minus { color: var(--danger); }
-  .path { flex: 1; min-width: 0; }
-  .path strong, .path small { display: block; }
-  .path strong { font-size: 13px; }
-  .path small { margin-top: 2px; color: var(--muted); font-size: 11.5px; }
-  .chat-title, .repo, .branch span, .path strong, .path small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lines { display: flex; gap: 4px; color: var(--muted); font: 11px var(--mono); }
+  .folder svg { flex: none; color: var(--muted); }
+  .folder .expanded { transform: rotate(90deg); }
+  .plus { color: var(--git-added-text); }
+  .minus { color: var(--danger); }
+  .chat-title, .repo, .branch span, .folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .note, nav p { margin: 0; padding: 14px 8px; color: var(--muted); font-size: 13px; }
   .note { margin: auto; }
   .filter, .files-button, .list-note { display: none; }
@@ -282,6 +255,6 @@
       color: var(--text);
       font-size: 16px;
     }
-    .file { min-height: 44px; }
+    .folder { min-height: 40px; }
   }
 </style>

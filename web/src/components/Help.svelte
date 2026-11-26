@@ -191,6 +191,12 @@
           Questions the agent has show up as cards in the chat.
         </li>
         <li>
+          <strong>Artifacts.</strong> Ask for a page, a small app, a document or a diagram to keep, and the agent makes it as
+          an artifact: it opens on the left in the sidebar's place (the button beside the sidebar button, or
+          <strong>Artifacts</strong> in the chat's header), with every version kept. <a href="#/artifacts">Artifacts</a> in the
+          rail lists them all.
+        </li>
+        <li>
           <strong>Stats.</strong> <a href="#/stats">Stats</a> shows how you have used Claude and Codex over time: tokens, cost at
           API prices, models, projects, tools and when you work. It reads the agents' own records on the server, numbers only,
           and uses no tokens.
@@ -216,7 +222,7 @@
         <li>
           <strong>Usage and tools.</strong> <a href="#/usage">Usage</a> shows each agent's plan limits;
           <a href="#/tools">Tools</a> lists each agent's MCP servers, skills and built-in tools.
-          <a href="#/debug">Activity</a> logs everything that happens.
+          <a href="#/debug">Logs</a> records everything that happens.
         </li>
         {#if app.dataDir}
           <li><strong>Where things are.</strong> The data directory on the server is <code>{app.dataDir}</code>.</li>

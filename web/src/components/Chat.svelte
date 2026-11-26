@@ -8,6 +8,7 @@
   import ChangesPanel from './ChangesPanel.svelte';
   import ContextPanel from './ContextPanel.svelte';
   import TasksPanel from './TasksPanel.svelte';
+  import { artifacts } from '../lib/artifacts.svelte';
   import Avatar from './Avatar.svelte';
   import Composer from './Composer.svelte';
   import Entry from './Entry.svelte';
@@ -205,6 +206,9 @@
     if (!id || !app.visible || app.meta?.sessionId !== id) return;
     if (app.sessions.find((chat) => chat.sessionId === id)?.activity === 'done') app.seen(id);
   });
+
+  /** This chat's artifacts, for the button between Context and Background. */
+  const chatArtifacts = $derived(artifacts.forChat(app.sessionId));
 </script>
 
 <header class="pane-bar">
@@ -232,7 +236,19 @@
   {/if}
   <p class="where">
     {#if summary}<ProviderChip />{/if}
-    {#if summary && !gone}<ContextPanel /><TasksPanel />{/if}
+    {#if summary && !gone}
+      <ContextPanel />
+      {#if chatArtifacts.length}
+        <button class="artifacts-chip" aria-pressed={artifacts.panelOpen} title="This chat's artifacts, beside the chat" onclick={() => artifacts.togglePanel(app.sessionId!)}>
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+            <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" />
+            <path d="M2.5 7h15M6 10.5h4M6 13h6" />
+          </svg>
+          Artifacts <span class="n">{chatArtifacts.length}</span>
+        </button>
+      {/if}
+      <TasksPanel />
+    {/if}
     {#if gone}
       <span class="archived" title="This chat's folder was deleted">Folder deleted</span>
     {:else if summary?.archived}
@@ -626,5 +642,31 @@
       margin-left: 14px;
       margin-right: 14px;
     }
+  }
+
+  /* Looks like the Context and Background chips beside it. */
+  .artifacts-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 6px 2px 5px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: none;
+    color: inherit;
+    font-size: 12px;
+    vertical-align: middle;
+  }
+
+  .artifacts-chip:hover,
+  .artifacts-chip[aria-pressed='true'] {
+    border-color: var(--border-strong);
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .artifacts-chip .n {
+    color: var(--text);
+    font-weight: 700;
   }
 </style>

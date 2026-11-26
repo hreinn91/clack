@@ -37,6 +37,7 @@
   --provider-claude: #c2571a;
   --provider-codex: #1f7a8c;
   --add: #e3f5ea;
+  --git-added-text: color-mix(in srgb, var(--presence) 65%, var(--text));
   --del: #fbe9ee;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px rgb(0 0 0 / 10%);
   /* Chart colours, in a fixed order (the theme swaps in darker steps for dark themes). */

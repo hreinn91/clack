@@ -39,6 +39,7 @@ import { defaultPrefs, forgetSession, movedFolder, prefsFor, saveMovedFolder, sa
 import { forgetDraft } from './drafts.ts';
 import { markFinished, markSeen, unreadSince } from './unread.ts';
 import { recordTurn } from './stats/turns.ts';
+import { forgetDiagrams, keepDiagrams } from './diagrams.ts';
 import type { Prefs } from './prefs.ts';
 
 export type Listener = (msg: ServerMessage) => void;
@@ -496,7 +497,11 @@ export class LiveSession implements RunHost {
     if (item.kind === 'tool') this.tools.set(item.id, item);
     // Everything added here is new activity; history loaded from disk never passes through.
     if (item.kind === 'user') this.log('prompt', item.text);
-    else if (item.kind === 'text') this.log('response', item.text);
+    else if (item.kind === 'text') {
+      this.log('response', item.text);
+      // Diagrams in a reply are kept in data/diagrams/<chat>/, never in the chat's folder.
+      void keepDiagrams(this.sessionId, item.text, { reply: item.id, provider: this.provider, ...(this.activeModel ?? this.model ? { model: (this.activeModel ?? this.model)! } : {}) });
+    }
     else if (item.kind === 'tool') this.log('tool', `${item.name} ${clip(JSON.stringify(item.input))}`);
     else if (item.kind === 'notice') this.log('notice', item.text, item.level === 'error');
     this.emit({ t: 'item', item, ...(replaces ? { replaces } : {}) });
@@ -808,6 +813,7 @@ export async function deleteChat(sessionId: string): Promise<void> {
   forgetChat(sessionId);
   forgetDraft(sessionId);
   markSeen(sessionId);
+  await forgetDiagrams(sessionId);
   bus.emit('sessions_changed');
 }
 

@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { extname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { extname, join, resolve } from 'node:path';
+import { config } from '../../config.ts';
+import { toolToken } from '../clackTools.ts';
 import type {
   BackgroundTask,
   ContextDetail,
@@ -136,6 +139,7 @@ export class CodexRun implements AgentRun {
     const host = this.host;
     const settings = modeSettings(host.mode);
     const common = {
+      ...clackToolsConfig(host.chatId),
       cwd: host.cwd,
       approvalPolicy: settings.approvalPolicy,
       approvalsReviewer: settings.approvalsReviewer,
@@ -627,4 +631,25 @@ export class CodexRun implements AgentRun {
     }
     this.host.processEnded();
   }
+}
+
+const TOOLS_SCRIPT = join(config.pluginDir, 'mcp', 'clack-tools.mjs');
+
+/**
+ * Clack's own tools (artifacts) for a Codex thread: an MCP server Codex starts
+ * from Clack's folder, which passes each call back to this server with a
+ * secret made at start-up. Left out when the script is not there.
+ */
+function clackToolsConfig(chatId: string): { config?: Record<string, unknown> } {
+  if (!existsSync(TOOLS_SCRIPT)) return {};
+  const host = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
+  return {
+    config: {
+      'mcp_servers.clack': {
+        command: process.execPath,
+        args: [TOOLS_SCRIPT],
+        env: { CLACK_TOOLS_URL: `http://${host}:${config.port}/api/agent-tools`, CLACK_TOOLS_TOKEN: toolToken, CLACK_CHAT_ID: chatId },
+      },
+    },
+  };
 }

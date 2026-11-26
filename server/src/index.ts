@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import type { ReadStream } from 'node:fs';
 import { homedir, networkInterfaces } from 'node:os';
 import fastifyStatic from '@fastify/static';
@@ -16,6 +16,7 @@ import type {
   LogPage,
   Me,
   MessageDraft,
+  Artifact,
   NoteContent,
   StatsReport,
   NoteNode,
@@ -34,6 +35,8 @@ import { addRoot, browse, ensureFolder, folderLabel, listFolders, listRoots } fr
 import { logDir, recentLogs } from './log.ts';
 import { flushDrafts, listDrafts, saveDraft } from './drafts.ts';
 import { statsReport } from './stats/index.ts';
+import { ArtifactError, artifactFile, deleteArtifact, listArtifacts, settleChatArtifacts } from './artifacts.ts';
+import { CLACK_TOOLS, runClackTool, validToolToken } from './agents/clackTools.ts';
 import { createNote, deleteNote, exportNotes, listNotes, moveNote, NoteError, readNote, saveNote } from './notes.ts';
 import { bus, contextDetail, createSession, deleteChat, deleteFolder, forgetRoot, gitDetail, gitDiff, listSummaries, moveChat, openSession, renameChat, restoreFolder, setArchived, shutdownAll, stopTask } from './sessions.ts';
 import { closeAllTerminals, closeTerminal, listTerminals, openTerminal } from './terminal.ts';
@@ -53,11 +56,17 @@ const OPEN_ROUTES = new Set(['/api/login', '/api/logout', '/api/me']);
 // and percent-encoded paths ("/%61pi/…"), which a check on the raw URL misses.
 // Everything is closed unless it is the web app's own files or an open route.
 const STATIC_ROUTES = new Set(['/', '/*']);
+/** Called by Clack's own tool server for Codex, with the secret Clack gave it, not a person's cookie. */
+const AGENT_TOOLS_ROUTE = '/api/agent-tools';
 
 app.addHook('onRequest', async (req, reply) => {
   const route = req.routeOptions.url;
   // No route matched: the 404 reply holds nothing.
   if (route === undefined || STATIC_ROUTES.has(route)) return;
+  if (route === AGENT_TOOLS_ROUTE) {
+    if (!validToolToken(req.headers['x-clack-tool-token'])) return reply.code(401).send({ error: 'Not one of Clack\'s tools' });
+    return;
+  }
   if (!sameOrigin(req)) return reply.code(403).send({ error: 'Cross-origin request refused' });
   if (OPEN_ROUTES.has(route)) return;
   if (!isAuthed(req)) return reply.code(401).send({ error: 'Not signed in' });
@@ -147,6 +156,78 @@ app.get('/api/stats', async (req, reply): Promise<StatsReport | undefined> => {
   }
 });
 
+// ---- artifacts: what agents made in chats, in data/artifacts/<chat>/<id>/ ----
+
+/** Every artifact, or one chat's, with whether its chat still exists and the chat's title. */
+app.get('/api/artifacts', async (req): Promise<Artifact[]> => {
+  const chat = (req.query as { chat?: string }).chat;
+  const titles = new Map((await listSummaries()).map((summary) => [summary.sessionId, summary.title]));
+  return (await listArtifacts(chat || undefined)).map((artifact) => ({
+    ...artifact,
+    chatExists: titles.has(artifact.chatId),
+    ...(titles.get(artifact.chatId) ? { chatTitle: titles.get(artifact.chatId) } : {}),
+  }));
+});
+
+/**
+ * One version's file. Whatever it holds, it can never act as part of Clack:
+ * a sandbox with no origin of its own, no network, and nothing but inline
+ * script and style, so a page an agent wrote can run but cannot reach out.
+ */
+app.get('/api/artifacts/:chat/:id/raw', async (req, reply) => {
+  const { chat, id } = req.params as { chat: string; id: string };
+  const q = req.query as { v?: string; download?: string };
+  const { meta, path, version } = await artifactFile(chat, id, q.v ? Number(q.v) : undefined);
+  const name = `${meta.title.replace(/[^\w .-]+/g, '_').slice(0, 80) || meta.id}${meta.versions.length > 1 ? ` v${version}` : ''}.${meta.ext}`;
+  reply
+    .header('content-type', meta.mime.startsWith('text/') || meta.mime === 'image/svg+xml' ? `${meta.mime}; charset=utf-8` : meta.mime)
+    .header('x-content-type-options', 'nosniff')
+    .header('cache-control', 'no-store');
+  // Pages and SVG can run script: sealed off. Pictures, PDFs and text cannot, and stay viewable as they are.
+  if (meta.mime === 'text/html' || meta.mime === 'image/svg+xml') {
+    reply.header(
+      'content-security-policy',
+      "sandbox allow-scripts allow-modals allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:",
+    );
+  } else if (meta.mime !== 'application/pdf') {
+    // (A PDF is left to the browser's own viewer, which a policy would stop.)
+    reply.header('content-security-policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
+  }
+  if (q.download) reply.header('content-disposition', `attachment; filename="${name.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(name)}`);
+  return reply.send(createReadStream(path));
+});
+
+app.delete('/api/artifacts/:chat/:id', async (req) => {
+  const { chat, id } = req.params as { chat: string; id: string };
+  await deleteArtifact(chat, id);
+  return { ok: true };
+});
+
+/** Every artifact of a chat (one that was deleted, say), all at once. */
+app.delete('/api/artifacts/:chat', async (req) => {
+  const removed = await settleChatArtifacts((req.params as { chat: string }).chat, true);
+  return { removed };
+});
+
+// Clack's tools, called by its MCP server for Codex (see plugin/mcp/clack-tools.mjs). The token is checked above.
+app.post(AGENT_TOOLS_ROUTE, async (req, reply) => {
+  const body = (req.body ?? {}) as { chatId?: unknown; list?: unknown; name?: unknown; arguments?: unknown };
+  if (body.list) return { tools: CLACK_TOOLS };
+  if (typeof body.chatId !== 'string' || typeof body.name !== 'string') return reply.code(400).send({ error: 'Which chat, and which tool?' });
+  let cwd: string;
+  try {
+    cwd = (await openSession(body.chatId)).cwd;
+  } catch {
+    return reply.code(404).send({ error: 'That chat is not known to Clack.' });
+  }
+  const args = body.arguments && typeof body.arguments === 'object' ? (body.arguments as Record<string, unknown>) : {};
+  try {
+    return { text: await runClackTool(body.chatId, cwd, body.name, args) };
+  } catch (err) {
+    return { text: err instanceof Error ? err.message : String(err), isError: true };
+  }
+});
+
 app.get('/api/sessions/:id/context', async (req, reply): Promise<ContextDetail | undefined> => {
   try {
     return await contextDetail((req.params as { id: string }).id);
@@ -187,7 +268,11 @@ app.post('/api/sessions/:id/tasks/:task/stop', async (req, reply) => {
 
 app.delete('/api/sessions/:id', async (req, reply) => {
   try {
-    await deleteChat((req.params as { id: string }).id);
+    const id = (req.params as { id: string }).id;
+    // Its artifacts are kept unless asked otherwise, with the chat's title so they can still be told apart.
+    const title = (await listSummaries()).find((chat) => chat.sessionId === id)?.title;
+    await deleteChat(id);
+    await settleChatArtifacts(id, (req.query as { artifacts?: string }).artifacts === 'delete', title).catch(() => 0);
     return { ok: true };
   } catch (err) {
     return reply.code(400).send({ error: err instanceof Error ? err.message : 'That chat could not be deleted.' });
@@ -301,7 +386,7 @@ app.get('/api/models', async (req): Promise<ProviderModels[]> =>
 // ---- the data directory: its files and folders, and shells opened in them ----
 
 app.setErrorHandler((err, _req, reply) => {
-  if (err instanceof FileError || err instanceof NoteError) return reply.code(err.status).send({ error: err.message });
+  if (err instanceof FileError || err instanceof NoteError || err instanceof ArtifactError) return reply.code(err.status).send({ error: err.message });
   return reply.send(err);
 });
 

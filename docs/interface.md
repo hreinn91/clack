@@ -11,12 +11,12 @@ The window has four parts:
 - **Top bar:** back and forward, and a search field that narrows the chats and folders
   in the sidebar as you type. Escape clears it.
 - **Rail** on the far left: **Home** returns to the most recent chat, **Notes** opens
-  your [notes](notes.md) at the one you had open last, **Usage** shows
+  your [notes](notes.md) at the one you had open last, **Artifacts** lists what the agents made ([Artifacts](artifacts.md)), **Usage** shows
   your plan's [limits](usage-and-tools.md#usage), **Tools** lists the [MCP servers, skills and
-  tools](usage-and-tools.md#tools-and-skills) Claude can use, **Activity** opens
-  the [activity log](usage-and-tools.md#activity-log), **Data** opens the [data page](#data-page),
+  tools](usage-and-tools.md#tools-and-skills) Claude can use, **Logs** opens
+  the [activity log](usage-and-tools.md#activity-log),
   **Theme** opens the [themes](#themes), **Stats** shows how you have used the agents over
-  time ([Stats](stats.md)), **Help** says whether each agent is signed in on the server, how to sign in,
+  time ([Stats](stats.md)), **Data** opens the [data page](#data-page), **Help** says whether each agent is signed in on the server, how to sign in,
   the keyboard shortcuts and a few tips, **+** starts a chat, and your picture at the bottom shows whether the browser is connected
   and holds **Sign out**. Its menu also has **Upload a picture…**: any PNG, JPEG, WebP or
   other picture the browser can open, cropped to the middle square and shrunk to 256

@@ -33,6 +33,7 @@ import type {
 import { api, ApiError } from './api';
 import { authorName, isOutside, within, withEffort } from './format';
 import { drafts } from './drafts.svelte';
+import { artifacts } from './artifacts.svelte';
 import { notes } from './notes.svelte';
 
 export type Route =
@@ -45,6 +46,8 @@ export type Route =
   | { name: 'usage' }
   | { name: 'tools' }
   | { name: 'stats' }
+  /** The Artifacts page, on one artifact when one is picked. */
+  | { name: 'artifacts'; chatId?: string; id?: string }
   /** A note, by its path; '' for the notes overview. */
   | { name: 'notes'; path: string };
 
@@ -59,6 +62,8 @@ function parseRoute(): Route {
   if (location.hash === '#/usage') return { name: 'usage' };
   if (location.hash === '#/tools') return { name: 'tools' };
   if (location.hash === '#/stats') return { name: 'stats' };
+  const artifact = location.hash.match(/^#\/artifacts(?:\/([0-9a-f-]{36})\/([a-z0-9-]+))?$/i);
+  if (artifact) return artifact[1] ? { name: 'artifacts', chatId: artifact[1].toLowerCase(), id: artifact[2]! } : { name: 'artifacts' };
   const note = location.hash.match(/^#\/notes(?:\/(.*))?$/);
   if (note) {
     const parts = (note[1] ?? '').split('/').map(safeDecode);
@@ -127,7 +132,13 @@ class AppState {
   dialog = $state<{ kind: 'rename' | 'move' | 'delete'; session: SessionSummary } | null>(null);
   /** A folder in the chat tree waiting for its deletion to be confirmed: its name, as the tree has it. */
   deletingFolder = $state<string | null>(null);
-  changesOpen = $state(false);
+  changesView = $state<'closed' | 'summary' | 'review'>('closed');
+  changesOpen = $derived(this.changesView === 'review');
+  changesStatus = $state.raw<GitStatus | null>(null);
+  changesLoading = $state(false);
+  changesError = $state('');
+  selectedChange = $state.raw<GitChange>();
+  #changesRequest = 0;
   changesFilter = $state('');
   changesListHidden = $state(false);
 
@@ -387,19 +398,37 @@ class AppState {
     return api<Capabilities>(`/api/capabilities${query ? `?${query}` : ''}`);
   }
 
-  /** What is changed and not committed in a chat's git repository; null when it is not in one. Throws, so the list can say what went wrong. */
-  async loadGitStatus(sessionId: string): Promise<GitStatus | null> {
-    return (await api<{ status: GitStatus | null }>(`/api/sessions/${sessionId}/git`)).status;
+  /** The summary and the full review share one snapshot, including a request still in flight. */
+  async refreshChanges(): Promise<void> {
+    const id = this.sessionId;
+    if (!id) return;
+    const request = ++this.#changesRequest;
+    this.changesLoading = true;
+    this.changesError = '';
+    try {
+      const { status } = await api<{ status: GitStatus | null }>(`/api/sessions/${id}/git`);
+      if (request === this.#changesRequest) this.changesStatus = status;
+    } catch (err) {
+      if (request === this.#changesRequest) this.changesError = err instanceof Error ? err.message : String(err);
+    } finally {
+      if (request === this.#changesRequest) this.changesLoading = false;
+    }
   }
 
-  openChanges(): void {
+  openChanges(file?: GitChange): void {
+    this.selectedChange = file;
     this.changesFilter = '';
     this.changesListHidden = false;
-    this.changesOpen = true;
+    this.changesView = 'review';
   }
 
   closeChanges(): void {
-    this.changesOpen = false;
+    this.#changesRequest++;
+    this.changesView = 'closed';
+    this.changesStatus = null;
+    this.changesError = '';
+    this.changesLoading = false;
+    this.selectedChange = undefined;
   }
 
   /** One changed file's diff. Throws, so the diff view can say what went wrong. */
@@ -491,8 +520,9 @@ class AppState {
     }
   }
 
-  async deleteChat(id: string): Promise<void> {
-    await api(`/api/sessions/${id}`, undefined, 'DELETE');
+  /** Deletes a chat; its artifacts are kept (for the Artifacts page) unless `withArtifacts`. */
+  async deleteChat(id: string, withArtifacts = false): Promise<void> {
+    await api(`/api/sessions/${id}${withArtifacts ? '?artifacts=delete' : ''}`, undefined, 'DELETE');
     // Leave before the list refreshes, so the page never shows a chat that is gone.
     if (this.sessionId === id) location.hash = '#/new';
     await this.loadSessions();
@@ -706,6 +736,7 @@ class AppState {
       if (notes.loaded) void notes.load();
       // So may the unsent messages; and any typed here while the server was away go out now.
       void drafts.resync();
+      void artifacts.load();
     };
     ws.onmessage = (event) => this.#onMessage(JSON.parse(event.data));
     ws.onclose = () => {
@@ -800,6 +831,9 @@ class AppState {
         break;
       case 'message_draft':
         drafts.onRemote(msg.sessionId, msg.draft, msg.client);
+        break;
+      case 'artifacts_changed':
+        void artifacts.load();
         break;
       case 'notes_changed':
         void notes.load();

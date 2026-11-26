@@ -1,6 +1,7 @@
 <script lang="ts">
   import { folderPlace, modelName, providerMaker, providerName, within as inside } from '../lib/format';
   import { app } from '../lib/state.svelte';
+  import { artifacts } from '../lib/artifacts.svelte';
   import FolderFinder from './FolderFinder.svelte';
   import Modal from './Modal.svelte';
 
@@ -11,6 +12,9 @@
   let value = $state('');
   let busy = $state(false);
   let error = $state('');
+  /** What happens to a deleted chat's artifacts: kept, unless chosen otherwise. */
+  let artifactChoice = $state<'keep' | 'delete'>('keep');
+  const chatArtifacts = $derived(dialog?.kind === 'delete' ? artifacts.forChat(dialog.session.sessionId) : []);
 
   // Each time a dialog opens it starts from the chat as it is now.
   $effect(() => {
@@ -18,6 +22,7 @@
     value = dialog.kind === 'rename' ? dialog.session.title : '';
     error = '';
     busy = false;
+    artifactChoice = 'keep';
   });
 
   // The folder list may be stale (folders made or deleted elsewhere): read it again when the dialog opens.
@@ -131,7 +136,7 @@
     if (!dialog) return;
     const { kind, session } = dialog;
     if (kind === 'rename') void run(() => app.renameChat(session.sessionId, value));
-    else if (kind === 'delete') void run(() => app.deleteChat(session.sessionId));
+    else if (kind === 'delete') void run(() => app.deleteChat(session.sessionId, artifactChoice === 'delete'));
     // Moving happens when a folder is picked in the finder.
   }
 </script>
@@ -162,6 +167,13 @@
           <strong>{session.title}</strong> will be removed for good, and cannot be brought back. The files in
           <code>{session.folder}</code> stay where they are.
         </p>
+        {#if chatArtifacts.length}
+          <fieldset class="choice">
+            <legend>Its {chatArtifacts.length === 1 ? 'artifact' : `${chatArtifacts.length} artifacts`}</legend>
+            <label><input type="radio" bind:group={artifactChoice} value="keep" /> Keep {chatArtifacts.length === 1 ? 'it' : 'them'} on the Artifacts page</label>
+            <label><input type="radio" bind:group={artifactChoice} value="delete" /> Delete {chatArtifacts.length === 1 ? 'it' : 'them'} too</label>
+          </fieldset>
+        {/if}
       {/if}
 
       {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -320,5 +332,32 @@
   .delete:hover:not(:disabled) {
     background: var(--danger);
     filter: brightness(1.1);
+  }
+
+  .choice {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .choice legend {
+    padding: 0 4px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .choice label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .choice input {
+    min-height: 0;
+    accent-color: var(--accent);
   }
 </style>

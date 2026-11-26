@@ -19,6 +19,21 @@ needs to be written: put the diagram in your reply.
    overview plus a closer look at one part.
 4. Do not also paste an ASCII drawing of the same thing.
 
+## No files for diagrams
+
+Clack keeps a copy of every diagram in your replies by itself, in its own data
+directory (`data/diagrams/<chat id>/`), outside the person's project. So:
+
+- Do not write diagram files (`.mmd`, `.svg`, `.png`) into the project folder,
+  and do not save chart data (CSV, JSON) there just to draw a chart. Work the
+  figures out, and put them in the diagram itself (`pie`, `xychart-beta` take
+  the numbers directly).
+- If the data has to come from a file or a command, read it, but write nothing
+  back for the diagram.
+- If the person asks for a diagram as a file to keep or download, make it an
+  artifact (`create_artifact` with type `mermaid`), which Clack also keeps in
+  its data directory.
+
 | Showing | Use |
 | --- | --- |
 | A process, a decision, how parts connect | `flowchart LR` or `flowchart TD` |

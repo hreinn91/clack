@@ -3,7 +3,9 @@ import { readPlans } from '../../plans.ts';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
+import { CLACK_TOOL_NAMES, CLACK_TOOLS, runClackTool } from '../clackTools.ts';
 import type {
   CanUseTool,
   HookCallback,
@@ -196,6 +198,9 @@ export class ClaudeRun implements AgentRun {
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       // clack's own skills (diagrams), from its folder: nothing is put in ~/.claude or the chat's folder.
       plugins: [{ type: 'local', path: config.pluginDir }],
+      // Clack's own tools (artifacts), which only save into data/artifacts: they need no permission card.
+      mcpServers: { clack: clackTools(host) },
+      allowedTools: CLACK_TOOL_NAMES.map((name) => `mcp__clack__${name}`),
       canUseTool: this.canUseTool,
       hooks: { PreToolUse: [{ hooks: [this.autoFence] }] },
       ...(host.model ? { model: host.model } : {}),
@@ -535,4 +540,42 @@ export class ClaudeRun implements AgentRun {
       opts.signal.addEventListener('abort', onAbort, { once: true });
       this.host.ask(request);
     });
+}
+
+/** Clack's tools for one chat, as an MCP server inside this process. They read the chat's folder when called, so a move is followed. */
+function clackTools(host: RunHost) {
+  const describe = (name: string) => CLACK_TOOLS.find((t) => t.name === name)!.description;
+  const run = (name: string) => async (args: Record<string, unknown>) => {
+    try {
+      return { content: [{ type: 'text' as const, text: await runClackTool(host.chatId, host.cwd, name, args) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true };
+    }
+  };
+  return createSdkMcpServer({
+    name: 'clack',
+    version: '1.0.0',
+    tools: [
+      tool(
+        'create_artifact',
+        describe('create_artifact'),
+        {
+          title: z.string(),
+          type: z.enum(['html', 'svg', 'markdown', 'mermaid', 'code', 'file']),
+          content: z.string().optional(),
+          language: z.string().optional(),
+          path: z.string().optional(),
+        },
+        run('create_artifact'),
+      ),
+      tool(
+        'update_artifact',
+        describe('update_artifact'),
+        { id: z.string(), content: z.string().optional(), path: z.string().optional(), title: z.string().optional(), note: z.string().optional() },
+        run('update_artifact'),
+      ),
+      tool('list_artifacts', describe('list_artifacts'), {}, run('list_artifacts')),
+      tool('read_artifact', describe('read_artifact'), { id: z.string(), version: z.number().optional() }, run('read_artifact')),
+    ],
+  });
 }

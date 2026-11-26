@@ -4,13 +4,15 @@
   import { app } from '../lib/state.svelte';
   import ChatList from './ChatList.svelte';
   import NoteBranch from './NoteBranch.svelte';
+  import ArtifactTree from './ArtifactTree.svelte';
   import TreeDir from './TreeDir.svelte';
 
   // On the Data page the sidebar shows the data directory instead of the chats, and on Notes the notes.
   const onData = $derived(app.route.name === 'data');
   const onNotes = $derived(app.route.name === 'notes');
+  const onArtifacts = $derived(app.route.name === 'artifacts');
   const query = $derived(app.search.trim().toLowerCase());
-  const hint = $derived(onData ? 'Filter files' : onNotes ? 'Filter notes' : 'Search chats and folders');
+  const hint = $derived(onData ? 'Filter files' : onNotes ? 'Filter notes' : onArtifacts ? 'Filter artifacts' : 'Search chats and folders');
   const named = (node: NoteNode): boolean => node.title.toLowerCase().includes(query) || node.children.some(named);
   const noMatch = $derived(onNotes && query !== '' && !notes.tree.some(named));
 
@@ -39,7 +41,7 @@
   }
 </script>
 
-<nav class="side" aria-label={onData ? 'Files' : onNotes ? 'Notes' : 'Chats'}>
+<nav class="side" aria-label={onData ? 'Files' : onNotes ? 'Notes' : onArtifacts ? 'Artifacts' : 'Chats'}>
   <header>
     <span class="brand">Clack</span>
     {#if onNotes}
@@ -75,7 +77,12 @@
   />
 
   <div class="scroll">
-    {#if onNotes}
+    {#if onArtifacts}
+      <section>
+        <div class="root"><h2>Artifacts</h2></div>
+        <ArtifactTree />
+      </section>
+    {:else if onNotes}
       <section>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div

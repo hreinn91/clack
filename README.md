@@ -12,6 +12,7 @@ from your browser, phone or desktop app while the agents run on your server.
 - Follow a live plan from your phone, answer questions and approve the next step. [Plans and progress](docs/chats.md#context-background-work-plans-and-changes)
 - Set several chats going and see which are working, which need you and which have a reply to read. [The Active list](docs/chats.md#the-active-list)
 - Keep Markdown notes beside your chats and export them individually or together. [Notes](docs/notes.md)
+- Get pages, small apps, documents and diagrams as artifacts beside the chat, with every version kept. [Artifacts](docs/artifacts.md)
 - Zoom into Mermaid diagrams in replies and save them as PNG or SVG. [Diagrams](docs/diagrams.md)
 - Check usage limits, inspect available tools and review the activity log. [Usage and tools](docs/usage-and-tools.md)
 - See how you use the agents over time: tokens, cost, models, projects, tools and your busiest hours. [Stats](docs/stats.md)
@@ -143,6 +144,7 @@ lives where, the settings, what the image holds, and using your SSH keys in it.
 | [The interface](docs/interface.md) | The window and sidebar, the Data page with its file tree and terminals, and the themes |
 | [Chats and folders](docs/chats.md) | Where chats work, managing chats and folders, model and effort, context, background work, plans, reviewing changes, attachments |
 | [Claude and Codex](docs/agents.md) | Signing in, how the two agents work side by side, switching a chat between them |
+| [Artifacts](docs/artifacts.md) | What agents make for you beside the chat: kinds, versions, the Artifacts page, and how pages are sealed off |
 | [Notes](docs/notes.md) | The notes tree, writing and preview, export |
 | [Diagrams](docs/diagrams.md) | Mermaid diagrams in replies and notes, the viewer, and the diagram skill |
 | [Usage, tools and the activity log](docs/usage-and-tools.md) | Plan limits, MCP servers and skills, and the log of everything that happened |

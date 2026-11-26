@@ -30,9 +30,23 @@ Mermaid is bundled with Clack and the browser only fetches it from the Clack ser
 first time a diagram is shown. It runs in its strict mode: no scripts, no click actions,
 and the drawing is sanitized before it is shown.
 
+**Where diagrams are kept.** Clack keeps a copy of every diagram an agent draws in a
+reply, in its own data directory, outside your project:
+
+```
+data/diagrams/<chat id>/
+  2026-11-26-142211-flowchart-3f2a9c1b.mmd   one file per diagram, its Mermaid code
+  index.json                                 when each was drawn, by which agent and model
+```
+
+The same diagram drawn again in the same chat is kept once. Browse them on the
+[Data page](interface.md#data-page). They are deleted with their chat. For a diagram you
+want to keep as its own file, with versions, ask for an [artifact](artifacts.md).
+
 **The diagram skill.** Clack hands both agents a skill of its own,
 `clack:mermaid-diagrams`, which tells them diagrams are drawn here, which diagram type
-suits what, and the syntax mistakes that stop Mermaid. The agent loads it when you ask
+suits what, the syntax mistakes that stop Mermaid, and to write no diagram or chart-data
+files into your project (Clack keeps the diagrams itself). The agent loads it when you ask
 for a diagram or a chart; it does not change the agent's instructions otherwise. It
 lives in `server/plugin` and is passed to Claude Code as a plugin and to Codex as an
 extra skills folder, so nothing is written to `~/.claude`, `~/.codex` or the chat's

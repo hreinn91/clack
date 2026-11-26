@@ -4,6 +4,8 @@
   import { app } from '../lib/state.svelte';
   import Markdown from './Markdown.svelte';
   import ToolCard from './ToolCard.svelte';
+  import ArtifactCard from './ArtifactCard.svelte';
+  import { isArtifactTool } from '../lib/artifacts.svelte';
 
   // One thing a sender put in the conversation. Who sent it is shown by the Message around it.
   let { item }: { item: Item } = $props();
@@ -61,6 +63,8 @@
     <summary>Thinking</summary>
     <Markdown text={item.text} />
   </details>
+{:else if item.kind === 'tool' && isArtifactTool(item.name)}
+  <ArtifactCard {item} />
 {:else if item.kind === 'tool'}
   <ToolCard {item} />
 {:else if item.kind === 'notice'}

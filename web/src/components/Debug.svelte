@@ -10,7 +10,7 @@
       <path d="M3 5.5h14M3 10h14M3 14.5h14" />
     </svg>
   </button>
-  <h1>Activity</h1>
+  <h1>Logs</h1>
   <!-- One view today; more debug views get a tab here. -->
   <nav aria-label="Debug views">
     <a href="#/debug/log" aria-current="page">Log</a>

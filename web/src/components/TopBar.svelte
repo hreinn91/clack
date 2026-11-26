@@ -1,11 +1,24 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
+  import { artifacts } from '../lib/artifacts.svelte';
 
   const mac = /Mac|iPhone|iPad/.test(navigator.platform);
   // The field narrows whatever the sidebar is showing.
-  const hint = $derived(app.changesOpen ? 'Filter changed files' : app.route.name === 'data' ? 'Filter files' : app.route.name === 'notes' ? 'Filter notes' : 'Search chats and folders');
+  const hint = $derived(app.changesOpen ? 'Filter changed files' : app.route.name === 'data' ? 'Filter files' : app.route.name === 'notes' ? 'Filter notes' : app.route.name === 'artifacts' ? 'Filter artifacts' : 'Search chats and folders');
 
-  const hidden = $derived(app.changesOpen ? app.changesListHidden : app.sidebarHidden);
+  /** The open chat's artifacts, which can take the sidebar's place. */
+  const chatArtifacts = $derived(app.route.name === 'session' ? artifacts.forChat(app.sessionId) : []);
+  const panelShown = $derived(artifacts.panelOpen && app.route.name === 'session');
+  const hidden = $derived(app.changesOpen ? app.changesListHidden : app.sidebarHidden || panelShown);
+
+  function toggleSidebar() {
+    if (app.changesOpen) app.changesListHidden = !hidden;
+    else if (panelShown) {
+      // Showing the chats puts the artifacts away.
+      artifacts.closePanel();
+      app.toggleSidebar(false);
+    } else app.toggleSidebar();
+  }
 
   function filter(text: string) {
     if (app.changesOpen) {
@@ -31,7 +44,7 @@
       aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
       aria-pressed={!hidden}
       title={`${hidden ? 'Show' : 'Hide'} sidebar (${mac ? '⌘⇧D' : 'Ctrl+Shift+D'})`}
-      onclick={() => app.changesOpen ? (app.changesListHidden = !hidden) : app.toggleSidebar()}
+      onclick={toggleSidebar}
     >
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
         <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" />
@@ -39,6 +52,23 @@
         {#if !hidden}<path d="M3 5.5h4.5v9H3z" fill="currentColor" stroke="none" opacity="0.55" />{/if}
       </svg>
     </button>
+    {#if chatArtifacts.length && !app.changesOpen}
+      <!-- The chat's artifacts, in the sidebar's place: one or the other. -->
+      <button
+        class="artifacts"
+        aria-label={panelShown ? 'Hide the artifacts' : `Show this chat's artifacts (${chatArtifacts.length})`}
+        aria-pressed={panelShown}
+        title={panelShown ? 'Hide the artifacts and show the chats' : `Artifacts in this chat (${chatArtifacts.length})`}
+        onclick={() => artifacts.togglePanel(app.sessionId!)}
+      >
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+          <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" />
+          <path d="M2.5 7h15" />
+          <path d="M6 10.5h4M6 13h6" />
+        </svg>
+        <span class="count">{chatArtifacts.length}</span>
+      </button>
+    {/if}
     <button aria-label="Back" title="Back" onclick={() => history.back()}>
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M16 10H4M9 5l-5 5 5 5" />
@@ -161,5 +191,35 @@
     border-radius: 999px;
     background: rgb(0 0 0 / 30%);
     font-size: 12.5px;
+  }
+
+  /* Right beside the sidebar's button, which then leaves the push to the right to it. */
+  .toggle:has(+ .artifacts) {
+    margin-right: 0;
+  }
+
+  .artifacts {
+    position: relative;
+    margin-right: auto;
+  }
+
+  .artifacts[aria-pressed='true'] {
+    background: var(--chrome-tile);
+    color: var(--chrome-strong);
+  }
+
+  .artifacts .count {
+    position: absolute;
+    top: 1px;
+    right: -2px;
+    min-width: 15px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 15px;
+    text-align: center;
   }
 </style>

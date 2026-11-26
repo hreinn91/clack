@@ -295,6 +295,8 @@ export type ServerMessage =
   | { t: 'sessions_changed' }
   /** A chat's unsent message changed, in this browser tab (`client`) or another; null when it was sent or cleared. */
   | { t: 'message_draft'; sessionId: string; draft: MessageDraft | null; client: string }
+  /** An artifact was made, changed or deleted. */
+  | { t: 'artifacts_changed'; chatId: string; artifactId: string }
   /** Notes were added, renamed, moved or deleted: the tree should be fetched again. */
   | { t: 'notes_changed' }
   /** A note was saved (here or in another browser): one showing it may read it again. */
@@ -552,4 +554,37 @@ export type StatsReport = {
   }[];
   /** Clack's own record of each reply in its chats: how long it took and how it ended. */
   turns: { count: number; stopped: number; failed: number; averageMs: number; since?: number };
+};
+
+// ---- Artifacts -----------------------------------------------------------------
+
+/** What an artifact is, which decides how it is shown. `file` is any file an agent made, saved as it is. */
+export type ArtifactType = 'html' | 'svg' | 'markdown' | 'mermaid' | 'code' | 'file';
+
+export type ArtifactVersion = {
+  n: number;
+  at: number;
+  size: number;
+  /** What changed, in the agent's words. */
+  note?: string;
+};
+
+/** An artifact an agent made in a chat, kept in data/artifacts/<chat>/<id>/ with every version. */
+export type Artifact = {
+  id: string;
+  chatId: string;
+  title: string;
+  type: ArtifactType;
+  /** For code: the language, for colouring. */
+  language?: string;
+  /** The file extension its versions are saved with, without the dot. */
+  ext: string;
+  mime: string;
+  created: number;
+  updated: number;
+  versions: ArtifactVersion[];
+  /** The chat's title, kept when the chat was deleted and its artifacts were not. */
+  chatTitle?: string;
+  /** Whether the chat it came from still exists (in lists). */
+  chatExists?: boolean;
 };

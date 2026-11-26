@@ -23,6 +23,10 @@ data/
   avatar.webp             your picture, if you uploaded one (or avatar.png / avatar.jpg)
   drafts.json             what was typed in each chat's message box and not sent yet
   unread.json             chats with a finished reply nobody has opened yet
+  diagrams/
+    <chat id>/            a copy of every diagram drawn in the chat's replies (see Diagrams)
+  artifacts/
+    <chat id>/<artifact>/  what an agent made in a chat, every version (see Artifacts)
   stats/
     index.json            figures read from the agents' transcripts, for Stats (numbers only)
     turns.jsonl           how long each reply in Clack's chats took, and how it ended
@@ -198,21 +202,25 @@ to chat** to return to your place. Earlier plans stay in the transcript.
 **Changes** beside those controls appears when the chat's folder is inside a Git repository under `data/sessions`
 or within a project folder added to Clack. With everything committed it reads **No changes** and does
 nothing. With uncommitted changes it shows how many files and how many lines were
-added and removed, and the branch in the message box gets a `*`. Clicking **Changes**
-opens a review with the changed files in the left sidebar, grouped by Git status
-(in conflict, staged, not staged and untracked).
-Each file has git's letter for the change (M modified, A added, D deleted, R renamed,
-U untracked) and its lines added and removed; a new file counts all its lines as
-added. The list also says how many commits are not pushed or still to pull. The counts
-are taken again when the chat is opened, shortly after each tool Claude runs, when a
-reply ends, each time the list is opened, and every 20 seconds while the chat is open
-(so a commit made in a terminal shows up too). Clack asks git with the settings that
-would run other programs (filesystem monitors, external diff tools) switched off.
+added and removed, and the branch in the message box gets a `*`. Click **Changes** to
+preview the files while staying in the chat. The dropdown shows the branch, totals
+and up to six entries with their Git status and line counts. The letters include
+**M** for modified, **A** for added, **D** for deleted, **R** for renamed and **U**
+for untracked. A new text file counts all its lines as added. Binary files show
+**Binary**. Select an entry to open its diff, or choose **Review all changes**.
 
-Select a file to read its diff in the conversation area. On desktop, the first file opens
-automatically. Use the search field above the list to filter by path, or use the arrows in
-the diff to step through the files. On a phone, the list opens first. Tap a file to read
-its diff, then **Changed files** to return to the list.
+The review groups changed files by folder in a collapsible tree on the left. If a file
+has both staged and unstaged edits, select **Staged** or **Not staged** to see the
+corresponding diff. Filter by path (including a renamed file’s old path) or use the
+previous and next arrows to step through the matching files in tree order. On a phone,
+**Review all changes** opens the tree first. Tap a file for its full-screen diff and
+**Changed files** to return to the tree.
+
+The sidebar also shows how many commits are ahead of or behind the upstream branch.
+Use the refresh button to check again. Clack checks Git when the chat or the
+summary opens, shortly after tool activity, when a reply ends and every 20 seconds
+while the chat stays open. It disables external diff tools and filesystem monitors
+for these checks.
 
 The diff shows removed and added lines with their old and new line numbers and the
 theme’s code colours. **Changes** shows a few lines around each edit. Click a gap or

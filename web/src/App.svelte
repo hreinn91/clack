@@ -14,11 +14,15 @@
   import Sidebar from './components/Sidebar.svelte';
   import Theme from './components/Theme.svelte';
   import Stats from './components/Stats.svelte';
+  import Artifacts from './components/Artifacts.svelte';
   import Help from './components/Help.svelte';
   import TopBar from './components/TopBar.svelte';
   import Tools from './components/Tools.svelte';
   import Usage from './components/Usage.svelte';
   import { app, SIDEBAR } from './lib/state.svelte';
+  import { artifacts, PANEL } from './lib/artifacts.svelte';
+  import ArtifactPanel from './components/ArtifactPanel.svelte';
+  import { untrack } from 'svelte';
 
   /** Width of the rail, which is where the sidebar's left edge sits. */
   const RAIL = 70;
@@ -26,6 +30,38 @@
 
   let drawerOpen = $state(false);
   let dragging = $state(false);
+  let windowWidth = $state(window.innerWidth);
+  const phoneQuery = matchMedia('(max-width: 820px)');
+  let phone = $state(phoneQuery.matches);
+  phoneQuery.addEventListener('change', (event) => (phone = event.matches));
+
+  /**
+   * In a chat, the left column holds the chats or the chat's artifacts, never
+   * both: opening the artifacts puts the chats away, and showing the chats
+   * closes the artifacts.
+   */
+  const panelShown = $derived(artifacts.panelOpen && app.route.name === 'session');
+
+  const watchingChanges = $derived(app.changesView !== 'closed');
+  const gitCheckedAt = $derived(app.meta?.gitChanges?.checkedAt);
+  $effect(() => {
+    if (!watchingChanges) return;
+    gitCheckedAt;
+    void app.refreshChanges();
+  });
+
+  function showChats() {
+    artifacts.closePanel();
+    app.toggleSidebar(false);
+  }
+
+  // Another chat has artifacts of its own: the panel closes unless they are this chat's.
+  $effect(() => {
+    const id = app.sessionId;
+    untrack(() => {
+      if (artifacts.panelOpen && artifacts.current?.chatId !== id?.toLowerCase()) artifacts.closePanel();
+    });
+  });
   let widthBeforeDrag = SIDEBAR.initial;
 
   function startDrag(event: PointerEvent) {
@@ -39,6 +75,10 @@
   function drag(event: PointerEvent) {
     if (!dragging) return;
     const width = event.clientX - RAIL;
+    if (panelShown) {
+      artifacts.resize(Math.max(PANEL.min, Math.min(width, windowWidth - RAIL - PANEL.chatRoom)));
+      return;
+    }
     if (width < SIDEBAR.min / 2) {
       // Pulled well past its narrowest, the sidebar gets out of the way altogether,
       // and comes back later at the width it had before this drag.
@@ -50,6 +90,16 @@
   }
 
   function gripKey(event: KeyboardEvent) {
+    if (panelShown) {
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        artifacts.resize(artifacts.panelWidth(windowWidth) + (event.key === 'ArrowLeft' ? -STEP : STEP));
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        showChats();
+      }
+      return;
+    }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
       const next = app.sidebarWidth + (event.key === 'ArrowLeft' ? -STEP : STEP);
@@ -70,6 +120,7 @@
     if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && key === 'd') {
       event.preventDefault();
       if (app.changesOpen) app.changesListHidden = !app.changesListHidden;
+      else if (panelShown) showChats();
       else app.toggleSidebar();
     } else if (key === 'k' && !event.shiftKey && !event.altKey && (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) {
       // Away from a Mac this is Ctrl+K, which a shell uses to delete to the end of the line: a terminal keeps it.
@@ -90,7 +141,7 @@
   });
 </script>
 
-<svelte:window onkeydown={shortcut} />
+<svelte:window onkeydown={shortcut} bind:innerWidth={windowWidth} />
 
 {#if app.authed === null}
   <div class="boot"><span class="spinner"></span> Connecting…</div>
@@ -100,14 +151,16 @@
   <div
     class="shell"
     class:dragging
-    class:narrow={app.sidebarHidden}
-    style:--side-width={`${app.sidebarHidden ? 0 : app.sidebarWidth}px`}
+    class:narrow={app.sidebarHidden && !(panelShown && !phone)}
+    style:--side-width={`${panelShown && !phone ? artifacts.panelWidth(windowWidth) : app.sidebarHidden ? 0 : app.sidebarWidth}px`}
   >
     <TopBar />
     <!-- On a wide screen the rail and sidebar are columns of the shell; on a phone they slide in together. -->
     <div class="drawer" class:open={drawerOpen}>
       <Rail />
-      <div class="panel" class:away={app.changesOpen} inert={app.changesOpen}><Sidebar /></div>
+      <div class="panel" class:away={app.changesOpen} inert={app.changesOpen}>
+        {#if panelShown && !phone}<ArtifactPanel />{:else}<Sidebar />{/if}
+      </div>
     </div>
     <!-- The sidebar's right edge: drag it to resize, double-click to go back to the usual width. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -126,7 +179,7 @@
       onpointermove={drag}
       onpointerup={() => (dragging = false)}
       onpointercancel={() => (dragging = false)}
-      ondblclick={() => app.resizeSidebar(SIDEBAR.initial)}
+      ondblclick={() => (panelShown ? artifacts.resize(Math.round(windowWidth * 0.45)) : app.resizeSidebar(SIDEBAR.initial))}
       onkeydown={gripKey}
     ></div>
     {#if drawerOpen}
@@ -141,6 +194,8 @@
         <Data onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'theme'}
         <Theme onmenu={() => (drawerOpen = true)} />
+      {:else if app.route.name === 'artifacts'}
+        <Artifacts onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'stats'}
         <Stats onmenu={() => (drawerOpen = true)} />
       {:else if app.route.name === 'help'}
@@ -156,6 +211,8 @@
       {/if}
     </main>
     {#if app.changesOpen}<ChangesPane />{/if}
+    <!-- On a phone the artifacts cover the screen; the menu button and the panel's × bring the chat back. -->
+    {#if panelShown && phone}<div class="sheet"><ArtifactPanel /></div>{/if}
   </div>
   <ChatDialogs />
   <NoteDialogs />
@@ -274,6 +331,14 @@
 
   .backdrop {
     display: none;
+  }
+
+  .sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    display: grid;
+    background: var(--bg);
   }
 
   @media (max-width: 820px) {

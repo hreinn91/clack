@@ -41,6 +41,7 @@
       app.route.name === 'usage' ||
       app.route.name === 'tools' ||
       app.route.name === 'notes' ||
+      app.route.name === 'artifacts' ||
       app.route.name === 'stats' ||
       app.route.name === 'help'
       ? app.route.name
@@ -87,6 +88,16 @@
     Notes
   </a>
 
+  <a class="item" class:active={section === 'artifacts'} href="#/artifacts" aria-current={section === 'artifacts' ? 'page' : undefined}>
+    <span class="tile">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.75" y="3.25" width="14.5" height="13.5" rx="2.5" />
+        <path d="M2.75 7h14.5M6.5 10.5l-1.5 1.5 1.5 1.5M10.5 10.5l1.5 1.5-1.5 1.5" />
+      </svg>
+    </span>
+    Artifacts
+  </a>
+
   <a class="item" class:active={section === 'usage'} href="#/usage" aria-current={section === 'usage' ? 'page' : undefined}>
     <span class="tile">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -109,21 +120,13 @@
 
   <a class="item" class:active={section === 'debug'} href="#/debug/log" aria-current={section === 'debug' ? 'page' : undefined}>
     <span class="tile">
+      <!-- A page of log lines, each with its time mark. -->
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10 3a5 5 0 0 0-5 5v3l-1.5 3h13L15 11V8a5 5 0 0 0-5-5zM8 16.5a2 2 0 0 0 4 0" />
+        <rect x="3" y="2.75" width="14" height="14.5" rx="2" />
+        <path d="M6 6.75h.01M8.5 6.75h5.5M6 10h.01M8.5 10h5.5M6 13.25h.01M8.5 13.25h3.5" />
       </svg>
     </span>
-    Activity
-  </a>
-
-  <a class="item" class:active={section === 'data'} href="#/data" aria-current={section === 'data' ? 'page' : undefined}>
-    <span class="tile">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
-        <ellipse cx="10" cy="5" rx="6.5" ry="2.5" />
-        <path d="M3.5 5v10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V5M3.5 10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5" />
-      </svg>
-    </span>
-    Data
+    Logs
   </a>
 
   <a class="item" class:active={section === 'theme'} href="#/theme" aria-current={section === 'theme' ? 'page' : undefined}>
@@ -146,6 +149,16 @@
       </svg>
     </span>
     Stats
+  </a>
+
+  <a class="item" class:active={section === 'data'} href="#/data" aria-current={section === 'data' ? 'page' : undefined}>
+    <span class="tile">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+        <ellipse cx="10" cy="5" rx="6.5" ry="2.5" />
+        <path d="M3.5 5v10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V5M3.5 10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5" />
+      </svg>
+    </span>
+    Data
   </a>
 
   <a class="item" class:active={section === 'help'} href="#/help" aria-current={section === 'help' ? 'page' : undefined}>

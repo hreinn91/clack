@@ -2,6 +2,7 @@
   import type { GitChange, GitDiff } from '../../../shared/protocol';
   import { highlight, parseDiff } from '../lib/diff';
   import type { Hunk } from '../lib/diff';
+  import { areaLabel } from '../lib/gitChanges';
   import { app } from '../lib/state.svelte';
 
   // One changed file, as a diff: removed lines over added ones, with their
@@ -29,13 +30,6 @@
 
   /** New files and files in conflict are always shown whole: there is nothing around the changes to leave out. */
   const always = $derived(change.area === 'untracked' || change.area === 'conflict');
-
-  const AREA: Record<GitChange['area'], string> = {
-    staged: 'Staged',
-    unstaged: 'Not staged',
-    untracked: 'New, not tracked',
-    conflict: 'In conflict',
-  };
 
   // Refreshes of the same file keep its scroll position. A new file starts at the top.
   let shown = '';
@@ -97,8 +91,8 @@
         {#if change.from}<span class="dir">{change.from} → </span>{/if}<span class="dir">{change.path.slice(0, cut)}</span><strong>{change.path.slice(cut)}</strong>
       </p>
       <p class="meta">
-        <span class="badge {change.area}">{AREA[change.area]}</span>
-        <span>{change.status}</span>
+        <span class="badge {change.area}">{areaLabel[change.area]}</span>
+        {#if change.area !== 'untracked' && change.area !== 'conflict'}<span>{change.status}</span>{/if}
         {#if diff && !diff.binary && !diff.tooLarge}
           {#if added}<span class="plus">+{added}</span>{/if}
           {#if removed}<span class="minus">−{removed}</span>{/if}
@@ -236,7 +230,7 @@
   }
 
   .plus {
-    color: var(--presence);
+    color: var(--git-added-text);
     font-weight: 700;
   }
 
