@@ -4,6 +4,7 @@ import type { Item, PlanItem } from '../../shared/protocol.ts';
 import { ClaudePlans, restoreClaudePlans } from '../src/agents/claude/plans.ts';
 import { itemsFromTurns } from '../src/agents/codex/items.ts';
 import type { Turn } from '../src/agents/codex/protocol.ts';
+import { markStarts, STEPS_TOOL } from '../src/agents/types.ts';
 import type { ToolItem } from '../src/agents/types.ts';
 
 function tool(id: string, name: string, input: unknown, text = ''): ToolItem {
@@ -24,7 +25,7 @@ test('Claude checklist snapshots coalesce, and errors and subagent work stay sep
   const history = restoreClaudePlans(items, {}, new Map());
   const plans = history.filter(item => item.kind === 'plan');
   assert.equal(plans.length, 1);
-  assert.deepEqual(plans[0]?.steps, [{ label: 'Check the build', status: 'in_progress' }]);
+  assert.deepEqual(plans[0]?.steps, [{ label: 'Check the build', status: 'in_progress', since: 'b' }], 'it started after the call that set it under way');
   assert.equal(history.filter(item => item.kind === 'tool' && !item.planId).length, 2);
 });
 
@@ -68,4 +69,52 @@ test('Codex merges revisions and a saved live checklist within its original turn
   const items = itemsFromTurns(turns, null, null, { [saved.id]: saved });
   assert.deepEqual(items.map(item => item.kind), ['user', 'plan', 'notice', 'user', 'text']);
   assert.deepEqual(items[1], { ...saved, markdown: '# Revised', ts: 10000 });
+});
+
+test("Clack's steps tool is a turn's checklist for Claude, live and from the transcript", () => {
+  const steps = (first: string, second: string) => ({ steps: [{ step: 'Find the check', status: first }, { step: 'Fix it', status: second }] });
+  const items: Item[] = [
+    { kind: 'user', id: 'one', text: 'Fix the login' },
+    tool('s1', STEPS_TOOL, steps('in_progress', 'pending'), 'Shown: 0 of 2 done.'),
+    tool('r', 'Read', { file_path: '/x/auth.ts' }),
+    tool('s2', STEPS_TOOL, steps('completed', 'in_progress'), 'Shown: 1 of 2 done.'),
+    { kind: 'text', id: 'answer', text: 'Fixed.' },
+  ];
+  const history = restoreClaudePlans(items, {}, new Map());
+  const plan = history.find(item => item.kind === 'plan');
+  assert.deepEqual(plan?.kind === 'plan' && plan.steps, [{ label: 'Find the check', status: 'completed', since: 's1' }, { label: 'Fix it', status: 'in_progress', since: 's2' }]);
+  assert.deepEqual(history.filter(item => item.kind === 'tool' && item.planId).map(item => item.id), ['s1', 's2']);
+  // A call without steps is an ordinary call.
+  const tracker = new ClaudePlans();
+  tracker.start('two');
+  assert.equal(tracker.result(tool('s3', STEPS_TOOL, { steps: [] })), undefined);
+});
+
+test("Clack's steps tool is a turn's checklist for Codex history too", () => {
+  const call = (id: string, status: string) => ({
+    type: 'mcpToolCall' as const, id, server: 'clack', tool: 'update_steps', status: 'completed' as const,
+    arguments: { steps: [{ step: 'Look around', status }] }, result: { content: [{ type: 'text', text: 'Shown.' }], structuredContent: null }, error: null,
+  });
+  const turns: Turn[] = [{ id: 't', status: 'completed', error: null, startedAt: 10, completedAt: 12, items: [
+    { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'Go', text_elements: [] }] },
+    call('c1', 'in_progress'),
+    call('c2', 'completed'),
+    { type: 'agentMessage', id: 'm', phase: null, text: 'Done.' },
+  ] }];
+  const items = itemsFromTurns(turns, null, null);
+  assert.deepEqual(items.map(item => item.kind), ['user', 'plan', 'tool', 'tool', 'text']);
+  assert.deepEqual(items[1]?.kind === 'plan' && items[1].steps, [{ label: 'Look around', status: 'completed', since: 'c1' }]);
+  assert.ok(items.every(item => item.kind !== 'tool' || item.planId === 'codex:t:plan'));
+});
+
+test('a step remembers where it started, through later updates', () => {
+  const first = markStarts([], [{ label: 'A', status: 'in_progress' }, { label: 'B', status: 'pending' }], 'call-1');
+  assert.deepEqual(first, [{ label: 'A', status: 'in_progress', since: 'call-1' }, { label: 'B', status: 'pending' }]);
+  const second = markStarts(first, [{ label: 'A', status: 'completed' }, { label: 'B', status: 'in_progress' }], 'call-7');
+  assert.deepEqual(second.map(step => step.since), ['call-1', 'call-7']);
+  // Task ids match a renamed step.
+  const tasks = markStarts([{ label: 'Old', status: 'in_progress', taskId: '1', since: 'x' }], [{ label: 'New', status: 'completed', taskId: '1' }], 'y');
+  assert.equal(tasks[0]?.since, 'x');
+  // A start that came along from an earlier turn's task list is replaced by this turn's.
+  assert.equal(markStarts([], [{ label: 'Old', status: 'completed', taskId: '1', since: 'last-turn' }], 'now')[0]?.since, 'now');
 });

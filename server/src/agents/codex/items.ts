@@ -1,4 +1,4 @@
-import { planId } from '../types.ts';
+import { markStarts, planId, STEPS_TOOL, stepsFromInput } from '../types.ts';
 import type { Item, PlanItem, Stamp } from '../../../../shared/protocol.ts';
 import type { ThreadItem, Turn } from './protocol.ts';
 
@@ -152,7 +152,16 @@ export function itemsFromTurns(turns: Turn[], model: string | null, effort: stri
         if (at === -1) at = items.length;
       } else {
         if (plan && at === -1 && item.type !== 'userMessage' && plan.ts !== undefined && ts !== undefined && ts >= plan.ts) at = items.length;
-        items.push(...itemsOf(item, stamp));
+        for (const entry of itemsOf(item, stamp)) {
+          // Clack's steps tool: the call is shown through the turn's checklist.
+          const steps = entry.kind === 'tool' && entry.name === STEPS_TOOL && !entry.result?.isError ? stepsFromInput(entry.input) : undefined;
+          if (steps && entry.kind === 'tool') {
+            entry.planId = id;
+            if (!saved[id]) plan = { ...stamp, ...plan, kind: 'plan', id, steps: markStarts(plan?.steps ?? [], steps, entry.id) };
+            if (at === -1) at = items.length;
+          }
+          items.push(entry);
+        }
       }
     }
     if (plan) items.splice(at === -1 ? items.length : at, 0, plan);

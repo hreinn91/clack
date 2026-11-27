@@ -1,17 +1,57 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { ArtifactError, artifactFile, createArtifact, listArtifacts, updateArtifact } from '../artifacts.ts';
+import { stepsFromInput } from './types.ts';
 
 // Clack's own tools, for both agents: Claude Code gets them in process (see
 // claude/run.ts), Codex through a small MCP server that calls back here (see
 // server/plugin/mcp/clack-tools.mjs). They make and change artifacts, which
-// Clack keeps outside the chat's folder, where the agent cannot write itself.
+// Clack keeps outside the chat's folder, where the agent cannot write itself,
+// and show the person the steps of the work under way (update_steps), which
+// the chat draws as a checklist (the chat's plan, see agents/*/plans).
 
-export const CLACK_TOOL_NAMES = ['create_artifact', 'update_artifact', 'list_artifacts', 'read_artifact'] as const;
+export const CLACK_TOOL_NAMES = ['update_steps', 'create_artifact', 'update_artifact', 'list_artifacts', 'read_artifact'] as const;
 export type ClackToolName = (typeof CLACK_TOOL_NAMES)[number];
 
 /** Describes the tools the same way for both agents (JSON Schema, as MCP wants it). */
-export const CLACK_TOOLS: { name: ClackToolName; description: string; inputSchema: Record<string, unknown> }[] = [
+export const CLACK_TOOLS: {
+  name: ClackToolName;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean };
+}[] = [
+  {
+    name: 'update_steps',
+    description:
+      'Show the person your plan for the request you are working on: a short checklist of the high-level steps, which Clack ' +
+      'draws above your reply and ticks off as you go, with your tool calls folded under each step. Use it for every request ' +
+      'that takes more than two or three actions: call it before your first other tool call, with 2 to 7 steps written as ' +
+      'what each one achieves ("Find where the token is checked", "Add a regression test"), not as tool calls. Call it again, ' +
+      'with the whole list, whenever a step starts or is done; keep one step in_progress while you work, and before your ' +
+      'final answer mark every step completed or drop the ones that turned out not to be needed. The list may change as you ' +
+      'learn more. Skip it for a quick answer or a single action. If you keep a to-do list with your own to-do tool for this ' +
+      'request, that list is shown the same way and this tool is not needed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          description: 'The whole checklist, in order.',
+          items: {
+            type: 'object',
+            properties: {
+              step: { type: 'string', description: 'A few words: what the step achieves.' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
+            },
+            required: ['step', 'status'],
+          },
+        },
+      },
+      required: ['steps'],
+    },
+    // It only changes what Clack shows: nothing in the folder, nothing outside.
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
   {
     name: 'create_artifact',
     description:
@@ -89,6 +129,12 @@ export async function runClackTool(chatId: string, cwd: string, name: string, ar
       const all = await listArtifacts(chatId);
       if (!all.length) return 'No artifacts have been made in this chat yet.';
       return all.map((a) => `${a.id}: "${a.title}" (${a.type}, version ${a.versions.at(-1)?.n ?? 1})`).join('\n');
+    }
+    case 'update_steps': {
+      const steps = stepsFromInput(args);
+      if (!steps) throw new ArtifactError(400, 'Give the steps as a list of { step, status }.');
+      const done = steps.filter((step) => step.status === 'completed').length;
+      return `Shown: ${done} of ${steps.length} done.`;
     }
     case 'read_artifact': {
       if (typeof args.id !== 'string') throw new ArtifactError(400, 'Which artifact?');

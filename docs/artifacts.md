@@ -20,6 +20,9 @@ Clack's own tools, which save it in `data/artifacts`, outside the chat's folder:
 - **list_artifacts** and **read_artifact** let it find and read them again, after a
   long chat or one handed over from the other agent.
 
+(Clack's tools also include **update_steps**, which shows the agent's steps for the
+turn: see [Steps and Raw](chats.md#steps-and-raw).)
+
 These tools only save into `data/artifacts`, so Claude uses them without asking for
 permission. Codex gets them from a small MCP server that comes with Clack
 (`server/plugin/mcp/clack-tools.mjs`), which Codex starts for each chat; depending on the

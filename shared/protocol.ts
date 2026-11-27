@@ -43,7 +43,17 @@ export type ProviderModels = {
  */
 export type Stamp = { ts?: number; model?: string; effort?: EffortLevel };
 
-export type PlanStep = { label: string; status: 'pending' | 'in_progress' | 'completed'; taskId?: string };
+export type PlanStep = {
+  label: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  taskId?: string;
+  /**
+   * The last entry of the conversation before this step was started (or found
+   * done): the work after it, until the next step starts, was for this step.
+   * Missing until the step is under way.
+   */
+  since?: string;
+};
 export type PlanContent = { steps: PlanStep[]; markdown?: string };
 export type PlanItem = Stamp & PlanContent & { kind: 'plan'; id: string };
 

@@ -14,6 +14,7 @@ import type {
   Stamp,
 } from '../../../../shared/protocol.ts';
 import { insideDir } from '../../folders.ts';
+import { planId, STEPS_TOOL, stepsFromInput } from '../types.ts';
 import type { AgentRun, RunHost } from '../types.ts';
 import { appServer } from './appserver.ts';
 import type { ThreadListener } from './appserver.ts';
@@ -308,6 +309,8 @@ export class CodexRun implements AgentRun {
         else if (item.type === 'reasoning') this.drafts.set(item.id, host.startDraft('thinking', ''));
         else {
           const tool = toolOf(item, this.stamp());
+          // A call to Clack's steps tool is shown as the turn's checklist, not as a call.
+          if (tool?.name === STEPS_TOOL && typeof params.turnId === 'string') tool.planId = planId('codex', params.turnId);
           if (tool && !host.tool(tool.id)) host.addItem(tool);
         }
         break;
@@ -343,6 +346,11 @@ export class CodexRun implements AgentRun {
           const fresh = toolOf(item, {});
           if (fresh) tool.input = fresh.input;
           if (result) host.toolResult(item.id, result.text, result.isError);
+          const steps = tool.name === STEPS_TOOL && result && !result.isError ? stepsFromInput(tool.input) : undefined;
+          if (steps && typeof params.turnId === 'string') {
+            const plan = host.updatePlan(params.turnId, { steps }, { ...this.stamp(), ...(tool.ts ? { ts: tool.ts } : {}) });
+            host.updateItem({ ...tool, planId: plan.id });
+          }
           break;
         }
         const items = itemsOf(item, this.stamp());
@@ -649,6 +657,8 @@ function clackToolsConfig(chatId: string): { config?: Record<string, unknown> } 
         command: process.execPath,
         args: [TOOLS_SCRIPT],
         env: { CLACK_TOOLS_URL: `http://${host}:${config.port}/api/agent-tools`, CLACK_TOOLS_TOKEN: toolToken, CLACK_CHAT_ID: chatId },
+        // Showing the steps changes nothing, so Codex never asks before it.
+        tools: { update_steps: { approval_mode: 'approve' } },
       },
     },
   };

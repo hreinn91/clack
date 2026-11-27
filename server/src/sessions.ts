@@ -29,7 +29,7 @@ import { backend, backends } from './agents/registry.ts';
 import type { AgentRun, RunHost, StoredSession, ToolItem } from './agents/types.ts';
 import { allRecords, chatOf, forgetChat, isEarlierSegment, noteChat, recordOf, saveSegments, segmentsOf } from './chats.ts';
 import type { Segment } from './chats.ts';
-import { planId } from './agents/types.ts';
+import { markStarts, planId } from './agents/types.ts';
 import { forgetPlans, savePlan } from './plans.ts';
 import { config } from './config.ts';
 import { ensureFolder, existingFolder, folderLabel, gitBranch, insideDir, insideRoots, isFolder, recreateFolder, removeFolder, removeRoot } from './folders.ts';
@@ -522,7 +522,9 @@ export class LiveSession implements RunHost {
   }
 
   updatePlan(turnId: string, patch: Partial<PlanContent>, stamp: Stamp = {}): PlanItem {
-    const item = { ...this.turnPlan(turnId, stamp), ...patch };
+    const before = this.turnPlan(turnId, stamp);
+    if (patch.steps) patch = { ...patch, steps: markStarts(before.steps, patch.steps, this.items.findLast((item) => item.kind !== 'plan')?.id) };
+    const item = { ...before, ...patch };
     this.updateItem(item);
     if (this.run.sessionId) {
       try {

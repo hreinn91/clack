@@ -98,6 +98,22 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 /** How narrow and wide the sidebar can be dragged, and where it starts, in pixels. */
 export const SIDEBAR = { min: 180, max: 520, initial: 260 };
 const SIDEBAR_KEY = 'clack.sidebar';
+const VIEW_KEY = 'clack.chatView';
+
+/**
+ * How the agent's turns are shown. Steps: a checklist of the work, with the
+ * details folded under each step, and the answer in full. Raw: everything as
+ * it happened.
+ */
+export type ChatView = 'steps' | 'raw';
+
+function savedView(): ChatView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'raw' ? 'raw' : 'steps';
+  } catch {
+    return 'steps';
+  }
+}
 
 // A layout preference belongs to the screen it was set on, so it stays in the browser.
 function savedSidebar(): { width: number; hidden: boolean } {
@@ -149,6 +165,8 @@ class AppState {
   /** The sidebar's width in pixels, and whether it is tucked away to leave the page more room. */
   sidebarWidth = $state(savedSidebar().width);
   sidebarHidden = $state(savedSidebar().hidden);
+  /** Steps or Raw, for every chat; kept in this browser. */
+  chatView = $state<ChatView>(savedView());
   sessions = $state<SessionSummary[]>([]);
   folders = $state<FolderInfo[]>([]);
   /** Folders outside data/sessions that were added, each with its own tree. */
@@ -267,6 +285,15 @@ class AppState {
   toggleSidebar(hidden = !this.sidebarHidden): void {
     this.sidebarHidden = hidden;
     this.#saveSidebar();
+  }
+
+  setChatView(view: ChatView): void {
+    this.chatView = view;
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      // Not remembered this time; the view still changes.
+    }
   }
 
   #saveSidebar(): void {

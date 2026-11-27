@@ -191,6 +191,10 @@
           Questions the agent has show up as cards in the chat.
         </li>
         <li>
+          <strong>Steps or Raw.</strong> The menu after the effort menu shows replies as a checklist of steps, with each step's
+          tool calls folded under it and the answer in full, or raw, everything as it happened.
+        </li>
+        <li>
           <strong>Artifacts.</strong> Ask for a page, a small app, a document or a diagram to keep, and the agent makes it as
           an artifact: it opens on the left in the sidebar's place (the button beside the sidebar button, or
           <strong>Artifacts</strong> in the chat's header), with every version kept. <a href="#/artifacts">Artifacts</a> in the

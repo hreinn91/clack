@@ -14,6 +14,7 @@ import type {
   PlanUsage,
   PlanContent,
   PlanItem,
+  PlanStep,
   Stamp,
   Provider,
 } from '../../../shared/protocol.ts';
@@ -28,6 +29,22 @@ export type { Provider };
 
 export function planId(provider: Provider, turnId: string): string {
   return `${provider}:${turnId}:plan`;
+}
+
+/** Clack's own steps tool (see clackTools.ts), as either agent names a call to it. */
+export const STEPS_TOOL = 'mcp__clack__update_steps';
+
+/** The checklist a call to the steps tool shows, or undefined when the call holds none. */
+export function stepsFromInput(input: unknown): PlanStep[] | undefined {
+  const steps = (input as { steps?: unknown } | null)?.steps;
+  if (!Array.isArray(steps)) return;
+  const out = steps.flatMap((entry): PlanStep[] => {
+    const { step, status } = (entry ?? {}) as { step?: unknown; status?: unknown };
+    if (typeof step !== 'string' || !step.trim()) return [];
+    const known = status === 'in_progress' || status === 'completed' ? status : 'pending';
+    return [{ label: step.trim(), status: known }];
+  });
+  return out.length ? out : undefined;
 }
 
 export type ToolItem = Extract<Item, { kind: 'tool' }>;
@@ -151,4 +168,18 @@ export interface AgentBackend {
   run(host: RunHost, sessionId: string | undefined, saved: boolean): AgentRun;
   /** Stops everything it runs, when the server shuts down. */
   shutdown(): void;
+}
+
+/**
+ * A new checklist, with each step's start carried over from the one before
+ * it (matched by task id, else by name). A step that is under way or done and
+ * has no start yet started after `last`: the newest entry of the conversation.
+ */
+export function markStarts(before: PlanStep[], next: PlanStep[], last: string | undefined): PlanStep[] {
+  return next.map(({ since: _carried, ...step }) => {
+    // A start carried in with the step (from an earlier turn's task list) is not this turn's.
+    const was = before.find((old) => (step.taskId ? old.taskId === step.taskId : old.label === step.label));
+    const since = was?.since ?? (step.status !== 'pending' ? last : undefined);
+    return since ? { ...step, since } : step;
+  });
 }

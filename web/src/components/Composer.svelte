@@ -4,6 +4,7 @@
   import { fileSize, isImagePath, providerMaker, providerName, splitAttachments, withAttachments } from '../lib/format';
   import { drafts } from '../lib/drafts.svelte';
   import { app } from '../lib/state.svelte';
+  import type { ChatView } from '../lib/state.svelte';
   import FolderPrompt from './FolderPrompt.svelte';
   import Picker from './Picker.svelte';
   import CodeText from './CodeText.svelte';
@@ -25,6 +26,12 @@
       { value: 'auto', label: 'Auto', description: "Codex's reviewer approves routine requests; Codex asks you about the rest." },
     ],
   };
+
+  /** How the agent's replies are shown, in every chat (kept in this browser). */
+  const VIEWS: { value: ChatView; label: string; description: string }[] = [
+    { value: 'steps', label: 'Steps', description: 'A checklist of the work, with the tool calls folded under each step, and the answer in full.' },
+    { value: 'raw', label: 'Raw', description: 'Everything as it happened: each tool call, the thinking and all the text.' },
+  ];
 
   const EFFORT_LABELS: Record<string, string> = {
     none: 'No extra effort',
@@ -397,6 +404,7 @@
             <Picker label="Effort" value={app.meta?.effort ?? ''} options={effortOptions} disabled={!canConfigure} onpick={pickEffort} />
           {/if}
         {/if}
+        <Picker label="How replies are shown" value={app.chatView} options={VIEWS} onpick={(value) => app.setChatView(value as ChatView)} />
       </div>
       <span class="end">
         <UsageMeter />

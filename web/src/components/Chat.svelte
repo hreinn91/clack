@@ -8,6 +8,8 @@
   import ChangesPanel from './ChangesPanel.svelte';
   import ContextPanel from './ContextPanel.svelte';
   import TasksPanel from './TasksPanel.svelte';
+  import TurnSteps from './TurnSteps.svelte';
+  import { isPlanCall } from '../lib/steps';
   import { artifacts } from '../lib/artifacts.svelte';
   import Avatar from './Avatar.svelte';
   import Composer from './Composer.svelte';
@@ -125,18 +127,24 @@
    * sits under a single name. For Claude that is a whole turn, with its
    * thinking, tool calls and text.
    */
+  const stepsView = $derived(app.chatView === 'steps');
+
   const groups = $derived.by(() => {
-    const out: Group[] = [];
+    let out: Group[] = [];
     let day = '';
     // The agent before the first switch, if the chat ever switched; otherwise the one it runs on.
     let provider: Provider = app.items.find((item) => item.kind === 'divider')?.from ?? app.provider;
     for (const item of app.items) {
-      if (item.kind === 'tool' && item.planId && !item.result?.isError) continue;
+      // Calls that only update the checklist are shown through it. The Steps
+      // view keeps them with the turn: a step starts after one of them.
+      if (isPlanCall(item) && !stepsView) continue;
       if (item.kind === 'plan' && !item.steps.length && !item.markdown) continue;
       if (item.kind === 'divider') provider = item.to;
       const kind = item.kind === 'user' ? 'person' : item.kind === 'notice' ? 'system' : item.kind === 'divider' ? 'switch' : 'model';
       const last = out.at(-1);
-      if (last?.kind === kind && kind !== 'switch' && kind !== 'person' && item.kind !== 'plan' && last.items[0]?.kind !== 'plan') {
+      // Raw shows a plan as a message of its own; Steps keeps it with the turn's work.
+      const apart = !stepsView && (item.kind === 'plan' || last?.items[0]?.kind === 'plan');
+      if (last?.kind === kind && kind !== 'switch' && kind !== 'person' && !apart) {
         last.items.push(item);
         continue;
       }
@@ -146,6 +154,15 @@
         group.day = dayLabel(item.ts);
       }
       out.push(group);
+    }
+    // A run of checklist updates on its own (before a notice, say) has nothing to show.
+    if (stepsView) {
+      out = out.filter((group, index) => {
+        if (group.items.some((item) => !isPlanCall(item))) return true;
+        const next = out[index + 1];
+        if (group.day && next && !next.day) next.day = group.day;
+        return false;
+      });
     }
     for (const group of out) {
       if (group.kind === 'person') group.name = app.userName;
@@ -328,13 +345,18 @@
       {:else}
         <Message kind={group.kind} name={group.name} ts={group.ts} provider={group.provider}
           copyText={messageText(group, group.kind === 'model' && index === groups.length - 1 ? streamingText : '')}>
-          {#each group.items as item (item.id)}
-            {#if item.kind === 'plan'}
-              {@render planWithApproval(item)}
-            {:else}
-              <Entry {item} />
-            {/if}
-          {/each}
+          {#if stepsView && group.kind === 'model'}
+            <TurnSteps items={group.items} before={groups[index - 1]?.items.at(-1)?.id} live={live && index === groups.length - 1}
+              agent={providerName(group.provider)} />
+          {:else}
+            {#each group.items as item (item.id)}
+              {#if item.kind === 'plan'}
+                {@render planWithApproval(item)}
+              {:else}
+                <Entry {item} />
+              {/if}
+            {/each}
+          {/if}
           {#if live && group.kind === 'model' && index === groups.length - 1}
             {@render liveOutput()}
           {/if}

@@ -2,8 +2,9 @@
 
 [← README](../README.md) · [All docs](../README.md#documentation)
 
-Where chats work, how to organise them, the model and effort, attachments, and what
-a chat shows while the agent works: its context, background work, plans and changes.
+Where chats work, how to organise them, the model and effort, the Steps and Raw views,
+attachments, and what a chat shows while the agent works: its context, background work,
+plans and changes.
 
 ## Where chats work
 
@@ -170,6 +171,36 @@ mode. Each opens as a list of every choice, with a line saying what it is for. T
 next message, is remembered for that chat, and becomes the starting point for new chats.
 "Default" leaves the choice to the selected agent.
 
+## Steps and Raw
+
+The menu right of the effort menu sets how the agent's replies are shown, in every chat.
+It is kept in the browser, and new browsers start in **Steps**.
+
+- **Steps** shows each reply as a short checklist of the work, then the answer in full.
+  Each step folds away what was done for it (the tool calls, the thinking, the text the
+  agent wrote along the way). Click a step to open it, or the **Steps** line above them to
+  fold the whole list. While the agent works, the step under way has a spinner, and a
+  step where a call failed says so.
+- **Raw** shows everything as it happened, one entry after another, as Clack always has.
+
+![A reply in the Steps view: four steps ticked off, the first opened to show its search and two file reads, then the answer](images/screenshot-steps.png)
+
+**Where the steps come from.** When the agent writes a plan for the turn, those are the
+steps, in its own words ("Find where the token is checked"). That plan can be Claude
+Code's to-do list, Codex's plan, or Clack's own `update_steps` tool, which both agents
+get with Clack's other tools. Each call is filed under the step that was under way when
+it was made. When the agent wrote no plan, Clack makes the steps itself from the calls
+in a row: "Read index.ts and auth.ts", "Edited index.ts", "Ran npm test". Housekeeping
+(loading a skill or more tools) goes with the step it leads up to. A reply with no calls
+at all is shown as it is.
+
+Agents only keep a to-do list for bigger tasks, and only when they decide to. So the
+description of `update_steps`, which the agent reads with its tools on every turn, asks
+it to post its steps for any request that takes more than two or three actions, and to
+tick them off as it goes. Skills and the agent's instructions are not changed. The
+extra calls cost a few tokens per turn and are never shown as calls (in Raw either),
+only as the checklist. Codex runs the tool without asking, since it changes nothing.
+
 ## Context, background work, plans and changes
 
 **Context** beside the title at the top of a chat shows how full that chat's context
@@ -193,7 +224,8 @@ and Claude usually replies to what it found.
 
 For example, ask *“Add a confirmation when my settings are saved. Test what happens
 if saving fails.”* When Claude or Codex reports a plan, its steps appear in the conversation and update
-as the agent works. In Plan mode, the proposed plan appears as Markdown. Select
+as the agent works (in the [Steps view](#steps-and-raw), with each step's work folded under it).
+In Plan mode, the proposed plan appears as Markdown. Select
 **Plan** in the chat header to read the latest proposal or checklist, then **Back
 to chat** to return to your place. Earlier plans stay in the transcript.
 

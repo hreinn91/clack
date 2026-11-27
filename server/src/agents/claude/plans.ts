@@ -1,5 +1,5 @@
 import type { Item, PlanContent, PlanItem, PlanStep } from '../../../../shared/protocol.ts';
-import { planId } from '../types.ts';
+import { markStarts, planId, STEPS_TOOL, stepsFromInput } from '../types.ts';
 import type { ToolItem } from '../types.ts';
 
 function fields(value: unknown): Record<string, unknown> {
@@ -43,6 +43,12 @@ export class ClaudePlans {
     if (tool.name === 'ExitPlanMode') {
       const markdown = approvedMarkdown(tool, raw) ?? prose(input.plan);
       if (markdown) return { markdown };
+    }
+    if (tool.name === STEPS_TOOL) {
+      const steps = stepsFromInput(input);
+      if (!steps) return;
+      this.steps = steps;
+      return { steps };
     }
     if (tool.name === 'TodoWrite' && Array.isArray(input.todos)) {
       this.steps = input.todos.flatMap(todo => {
@@ -110,6 +116,8 @@ export function restoreClaudePlans(items: Item[], saved: Record<string, PlanItem
       const patch = tracker.result(item, result);
       if (item.name === 'ExitPlanMode') approved = approvedMarkdown(item, result);
       if (patch || (saved[id]?.markdown && item.name === 'ExitPlanMode' && !item.result?.isError)) {
+        // Each step starts after the call that first showed it under way, as it did live.
+        if (patch?.steps) patch.steps = markStarts(plan?.steps ?? [], patch.steps, item.id);
         plan = { kind: 'plan', id, steps: [], ts: item.ts, model: item.model, effort: item.effort, ...plan, ...patch };
         item.planId = id;
         if (at < 0) at = out.length;

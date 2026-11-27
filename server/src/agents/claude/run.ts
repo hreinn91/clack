@@ -557,6 +557,12 @@ function clackTools(host: RunHost) {
     version: '1.0.0',
     tools: [
       tool(
+        'update_steps',
+        describe('update_steps'),
+        { steps: z.array(z.object({ step: z.string(), status: z.enum(['pending', 'in_progress', 'completed']) })) },
+        run('update_steps'),
+      ),
+      tool(
         'create_artifact',
         describe('create_artifact'),
         {
